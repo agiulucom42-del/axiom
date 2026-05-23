@@ -146,6 +146,24 @@ CLI and legacy REST endpoints keep their user-facing output stable; the structur
 
 `paranoidMode` disables `learnFromLLM` and any external LLM-backed learning path while keeping local symbolic reasoning active.
 
+## MCP Adapter
+
+AXIOM also exposes a minimal stdio-based MCP server for tool-driven clients:
+
+```bash
+npm run mcp
+```
+
+Available tools:
+- `axiom.learn`
+- `axiom.ask`
+- `axiom.verify`
+- `axiom.reason`
+- `axiom.compare`
+- `axiom.dream`
+
+The adapter returns both human-readable `content` and structured MCP `structuredContent` so clients can choose the format they prefer.
+
 ### Belge Yükleme
 
 ```

@@ -111,8 +111,10 @@ class Kernel {
     this.contractVersion = CONTRACT_VERSION;
     this._rust = hasRust ? new RustGraph() : null;
     this.plugins = new PluginManager(this);
-    const pDir = path.join(__dirname, 'plugins');
-    if (fs.existsSync(pDir)) this.plugins.load(pDir);
+    if (opts.loadPlugins !== false) {
+      const pDir = path.join(__dirname, 'plugins');
+      if (fs.existsSync(pDir)) this.plugins.load(pDir);
+    }
   }
 
   usePlugin(plugin) {
