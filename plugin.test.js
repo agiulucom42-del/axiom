@@ -43,7 +43,7 @@ describe('Plugin - Yönetici', () => {
       name: 'alias',
       beforeAsk(k2, data) { data.question = data.question.replace('cat', 'kedi'); }
     });
-    const answer = k.ask('cat nedir');
+    const answer = k.ask('cat nedir').data.answer;
     assert.ok(answer.includes('balık'));
   });
 
@@ -55,7 +55,7 @@ describe('Plugin - Yönetici', () => {
       afterAsk(k2, data) { log = data; }
     });
     k.learn('kedi balık yer');
-    const answer = k.ask('kedi nedir');
+    const answer = k.ask('kedi nedir').data.answer;
     assert.strictEqual(log.question, 'kedi nedir');
     assert.strictEqual(log.answer, answer);
   });

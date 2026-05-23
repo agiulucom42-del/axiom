@@ -6,7 +6,7 @@ describe('Graph - Düğüm Yönetimi', () => {
   let g;
 
   it('addNode: yeni düğüm oluşturur, weight=0.5', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('köpek', 'hayvan');
     const n = g.getNode('köpek');
     assert.ok(n);
@@ -16,7 +16,7 @@ describe('Graph - Düğüm Yönetimi', () => {
   });
 
   it('addNode: aynı id label günceller, weight artar', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('köpek', 'hayvan');
     g.addNode('köpek', 'memeli hayvan');
     const n = g.getNode('köpek');
@@ -25,7 +25,7 @@ describe('Graph - Düğüm Yönetimi', () => {
   });
 
   it('getNode: olmayan id null döner', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     assert.strictEqual(g.getNode('olmayan'), null);
   });
 });
@@ -34,7 +34,7 @@ describe('Graph - Kenar Yönetimi', () => {
   let g;
 
   it('addEdge: kenar oluşturur, weight=0.5', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('köpek', 'hayvan');
     g.addNode('memeli', 'sınıf');
     g.addEdge('köpek', 'memeli', 'tür');
@@ -46,7 +46,7 @@ describe('Graph - Kenar Yönetimi', () => {
   });
 
   it('addEdge: aynı kenar tekrarı weight artırır (tavan 1.0)', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('a', 'x');
     g.addNode('b', 'y');
     g.addEdge('a', 'b', 'bag');
@@ -58,7 +58,7 @@ describe('Graph - Kenar Yönetimi', () => {
   });
 
   it('getEdge: olmayan kenar null döner', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     assert.strictEqual(g.getEdge('x', 'y', 'z'), null);
   });
 });
@@ -67,7 +67,7 @@ describe('Graph - Sorgu', () => {
   let g;
 
   it('query: label ile eşleşen düğümleri bulur', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('köpek', 'hayvan');
     g.addNode('kedi', 'hayvan');
     g.addNode('masa', 'eşya');
@@ -80,7 +80,7 @@ describe('Graph - Seyrek Süperpozisyon', () => {
   let g;
 
   it('addTag: vektöre boyut ekler', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('köpek', 'hayvan');
     g.addTag('köpek', 'memeli', 0.8);
     const n = g.getNode('köpek');
@@ -88,7 +88,7 @@ describe('Graph - Seyrek Süperpozisyon', () => {
   });
 
   it('addTag: varolan boyuta weight ekler', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('köpek', 'hayvan');
     g.addTag('köpek', 'memeli', 0.8);
     g.addTag('köpek', 'memeli', 0.1);
@@ -97,7 +97,7 @@ describe('Graph - Seyrek Süperpozisyon', () => {
   });
 
   it('cosineSimilarity: aynı vektör 1 döner', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('a', 'x');
     g.addNode('b', 'y');
     g.addTag('a', 'boyut1', 0.5);
@@ -107,7 +107,7 @@ describe('Graph - Seyrek Süperpozisyon', () => {
   });
 
   it('cosineSimilarity: dik vektör 0 döner', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('a', 'x');
     g.addNode('b', 'y');
     g.addTag('a', 'boyut1', 1);
@@ -121,7 +121,7 @@ describe('Graph - Unutma Eğrisi', () => {
   let g;
 
   it('getNode: erişim lastAccessed günceller', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('köpek', 'hayvan');
     const once = g.getNode('köpek');
     const erisim1 = once.lastAccessed;
@@ -130,7 +130,7 @@ describe('Graph - Unutma Eğrisi', () => {
   });
 
   it('getWeight: zamanla azalan weight döner', () => {
-    g = new Graph({ decayLambda: 0.1 });
+    g = new Graph({ decayLambda: 0.1, useSQLite: false });
     g.addNode('test', 'x');
     g.getNode('test');
     const w = g.getWeight('test');
@@ -142,7 +142,7 @@ describe('Graph - Gelişmiş Sorgu', () => {
   let g;
 
   it('getInEdges: inbound kenarları O(1) döndürür', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('a', 'x'); g.addNode('b', 'y'); g.addNode('c', 'z');
     g.addEdge('b', 'a', 'tür');
     g.addEdge('c', 'a', 'tür');
@@ -151,7 +151,7 @@ describe('Graph - Gelişmiş Sorgu', () => {
   });
 
   it('nodeCount / edgeCount: doğru sayı döner', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('a', 'x'); g.addNode('b', 'y');
     g.addEdge('a', 'b', 'bag');
     assert.strictEqual(g.nodeCount(), 2);
@@ -159,14 +159,14 @@ describe('Graph - Gelişmiş Sorgu', () => {
   });
 
   it('getStats: yapılandırma bilgisi döner', () => {
-    g = new Graph({ decayLambda: 0.1, pruneThreshold: 0.05 });
+    g = new Graph({ decayLambda: 0.1, pruneThreshold: 0.05, useSQLite: false });
     const s = g.getStats();
     assert.strictEqual(s.decayLambda, 0.1);
     assert.ok(typeof s.nodes === 'number');
   });
 
   it('removeNode: düğüm ve tüm kenarlarını temizler', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('a', 'x'); g.addNode('b', 'y');
     g.addEdge('a', 'b', 'bag');
     assert.ok(g.removeNode('a'));
@@ -176,7 +176,7 @@ describe('Graph - Gelişmiş Sorgu', () => {
   });
 
   it('removeNode: olmayan düğüm false döner', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     assert.strictEqual(g.removeNode('olmayan'), false);
   });
 });
@@ -185,7 +185,7 @@ describe('Graph - Optimize', () => {
   let g;
 
   it('optimize: zayıf nodesuz kenarları budar', () => {
-    g = new Graph({ decayLambda: 0.5 });
+    g = new Graph({ decayLambda: 0.5, useSQLite: false });
     g.addNode('a', 'x'); g.addNode('b', 'y');
     g.addEdge('a', 'b', 'bag');
     g._edges[0].weight = 0.001;
@@ -198,7 +198,7 @@ describe('Graph - Prune (Budama)', () => {
   let g;
 
   it('prune: eşik altı kenarları temizler', () => {
-    g = new Graph();
+    g = new Graph({ useSQLite: false });
     g.addNode('a', 'x'); g.addNode('b', 'y'); g.addNode('c', 'z');
     g.addEdge('a', 'b', 'bag');
     g.addEdge('a', 'c', 'zayif');
@@ -211,8 +211,11 @@ describe('Graph - Prune (Budama)', () => {
 
 describe('Graph - Save/Load', { concurrency: false }, () => {
   const fs = require('fs');
-  const testFile = 'test_memory.json';
-  const testDb   = 'test_memory.db';
+  const os = require('os');
+  const path = require('path');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'axiom-graph-'));
+  const testFile = path.join(tempDir, 'test_memory.json');
+  const testDb   = path.join(tempDir, 'test_memory.db');
 
   it('save ve load: dosyaya yazıp geri okur', () => {
     const g = new Graph({ memoryPath: testFile, useSQLite: false });
@@ -248,6 +251,30 @@ describe('Graph - Save/Load', { concurrency: false }, () => {
     try { fs.unlinkSync(testFile); } catch (_) {}
   });
 
+  it('SQLite: kenar metadata bilgisini kaybetmez', () => {
+    try { fs.unlinkSync(testDb); } catch (_) {}
+    const g = new Graph({ memoryPath: testFile, dbPath: testDb, useSQLite: true });
+    g.addNode('kedi', 'kedi');
+    g.addNode('hayvan', 'hayvan');
+    g.addEdge('kedi', 'hayvan', 'tür', {
+      confidence: 0.82,
+      source: 'test',
+      evidence: ['kedi hayvandır'],
+    });
+    g.save();
+
+    const g2 = new Graph({ memoryPath: testFile, dbPath: testDb, useSQLite: true });
+    g2.load();
+    const edge = g2.getEdge('kedi', 'hayvan', 'tür');
+    assert.ok(edge);
+    assert.strictEqual(edge.confidence, 0.82);
+    assert.strictEqual(edge.source, 'test');
+    assert.deepStrictEqual(edge.evidence, ['kedi hayvandır']);
+
+    try { fs.unlinkSync(testDb); } catch (_) {}
+    try { fs.unlinkSync(testFile); } catch (_) {}
+  });
+
   it('SQLite: getStats backend=sqlite döner', () => {
     try { fs.unlinkSync(testDb); } catch (_) {}
     const g = new Graph({ memoryPath: testFile, dbPath: testDb, useSQLite: true });
@@ -267,6 +294,6 @@ describe('Graph - Save/Load', { concurrency: false }, () => {
   after(() => {
     try { fs.unlinkSync(testFile); } catch (_) {}
     try { fs.unlinkSync(testDb); } catch (_) {}
-    try { fs.unlinkSync('test_memory.embeddings.json'); } catch (_) {}
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
   });
 });

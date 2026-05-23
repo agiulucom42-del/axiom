@@ -58,14 +58,14 @@ describe('Kernel - Çıkarım', () => {
     const k = freshKernel();
     k.learn('Köpek hayvandır');
     k.learn('Köpek havlar');
-    const cevap = k.ask('Köpek nedir');
+    const cevap = k.ask('Köpek nedir').data.answer;
     assert.ok(cevap);
     assert.ok(cevap.includes('hayvan'));
   });
 
   it('ask: bilinmeyen kavram için "Bilmiyorum" döner', () => {
     const k = freshKernel();
-    const cevap = k.ask('Uçan fil nedir');
+    const cevap = k.ask('Uçan fil nedir').data.answer;
     assert.strictEqual(cevap, 'Bilmiyorum');
   });
 
@@ -73,14 +73,14 @@ describe('Kernel - Çıkarım', () => {
     const k = freshKernel();
     k.learn('Köpek memelidir');
     k.learn('Memeli hayvandır');
-    const cevap = k.ask('Köpek nedir');
+    const cevap = k.ask('Köpek nedir').data.answer;
     assert.ok(cevap.includes('hayvan'));
   });
 
   it('ask: soru kelimesi temizlenir', () => {
     const k = freshKernel();
     k.learn('Kedi hayvandır');
-    const cevap = k.ask('kedi nedir');
+    const cevap = k.ask('kedi nedir').data.answer;
     assert.ok(cevap !== 'Bilmiyorum');
     assert.ok(cevap.includes('hayvan'));
   });
@@ -180,7 +180,7 @@ describe('Kernel - Reason & Compare', () => {
     const k = freshKernel();
     k.learn('Köpek memelidir');
     k.learn('Memeli hayvandır');
-    const r = k.reason('köpek');
+    const r = k.reason('köpek').data.answer;
     assert.ok(r !== 'Bilmiyorum');
     assert.ok(r.includes('köpek'));
   });
@@ -189,7 +189,61 @@ describe('Kernel - Reason & Compare', () => {
     const k = freshKernel();
     k.learn('Köpek memelidir');
     k.learn('Kedi memelidir');
-    const r = k.compare('köpek', 'kedi');
+    const r = k.compare('köpek', 'kedi').data.answer;
     assert.ok(r.includes('ortak'));
+  });
+});
+
+
+describe('Kernel - Core API Contract', () => {
+  function assertEnvelope(result, type) {
+    assert.strictEqual(typeof result.ok, 'boolean');
+    assert.strictEqual(result.type, type);
+    assert.ok('data' in result);
+    assert.ok(Array.isArray(result.evidence));
+    assert.ok('error' in result);
+    assert.ok(result.meta && typeof result.meta === 'object');
+  }
+
+  it('public methods return the structured envelope', () => {
+    const k = freshKernel();
+    k.learn('kedi hayvandir');
+    assertEnvelope(k.learn('kopek hayvandir'), 'learn');
+    assertEnvelope(k.ask('kedi nedir'), 'ask');
+    assertEnvelope(k.verify('kedi hayvandir'), 'verify');
+    assertEnvelope(k.reason('kedi'), 'reason');
+    assertEnvelope(k.compare('kedi', 'kopek'), 'compare');
+    assertEnvelope(k.dream(), 'dream');
+  });
+
+  it('validateResult catches invalid result shapes', () => {
+    const k = freshKernel();
+    assert.throws(() => k._validateResult({ ok: 'yes', evidence: [] }), /ok must be boolean/);
+    assert.throws(() => k._validateResult({ ok: true, evidence: null }), /evidence must be array/);
+    assert.throws(() => k._validateResult({ ok: true, type: 'verify', data: { status: 'bad', confidence: 0 }, evidence: [] }), /Invalid verify status/);
+    assert.throws(() => k._validateResult({ ok: true, type: 'verify', data: { status: 'dogrulandi', confidence: 2 }, evidence: [] }), /Invalid confidence/);
+  });
+
+  it('normalizes Istanbul dotted and dotless variants to one node', () => {
+    const k = freshKernel();
+    k.learn('\u0130STANBUL sehirdir');
+    k.learn('\u0131stanbul buyuktur');
+    k.learn('istanbul kalabaliktir');
+    assert.ok(k.graph.getNode('istanbul'));
+    assert.strictEqual(k.graph.getNode('\u0131stanbul'), null);
+    assert.ok(k.graph.getEdges('istanbul').length >= 3);
+  });
+
+  it('keeps other Turkish letters instead of transliterating them', () => {
+    const k = freshKernel();
+    k.learn('k\u00f6pek hayvandir');
+    k.learn('\u00e7ocuk insandir');
+    k.learn('\u00f6\u011frenme surectir');
+    assert.ok(k.graph.getNode('k\u00f6pek'));
+    assert.ok(k.graph.getNode('\u00e7ocuk'));
+    assert.ok(k.graph.getNode('\u00f6\u011frenme'));
+    assert.strictEqual(k.graph.getNode('kopek'), null);
+    assert.strictEqual(k.graph.getNode('cocuk'), null);
+    assert.strictEqual(k.graph.getNode('ogrenme'), null);
   });
 });

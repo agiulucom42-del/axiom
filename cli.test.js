@@ -123,7 +123,7 @@ describe('CLI - Komut Çalıştırma', () => {
     const cli = freshCLI();
     const result = cli.execute('yükle', tmp);
     assert.ok(result.includes('3 bilgi öğrenildi'));
-    assert(cli.kernel.ask('kedi balık yer') !== 'Bilmiyorum');
+    assert(cli.kernel.ask('kedi balık yer').data.answer !== 'Bilmiyorum');
     fs.unlinkSync(tmp);
   });
 

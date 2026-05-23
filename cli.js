@@ -4,8 +4,8 @@ const LLMAdapter = require('./llmAdapter');
 const fs = require('fs');
 
 class CLI {
-  constructor() {
-    this.kernel = new Kernel();
+  constructor(opts = {}) {
+    this.kernel = new Kernel(opts.kernel || {});
     this.dream = new Dream(this.kernel);
     this.llm = new LLMAdapter();
   }
@@ -99,30 +99,33 @@ class CLI {
         return `✅ "${subject}" öğrendim.`;
       }
       case 'sor': {
-        const cevap = this.kernel.ask(args);
-        return cevap === 'Bilmiyorum' ? `❌ ${cevap}` : `💬 ${cevap}`;
+        const result = this.kernel.ask(args);
+        const cevap = result.data.answer;
+        return cevap === 'Bilmiyorum' ? `\u274c ${cevap}` : `\u{1F4AC} ${cevap}`;
       }
       case 'neden': {
-        const cevap = this.kernel.reason(args);
-        return cevap === 'Bilmiyorum' ? `❌ ${cevap}` : `🔍 ${cevap}`;
+        const result = this.kernel.reason(args);
+        const cevap = result.data.answer;
+        return cevap === 'Bilmiyorum' ? `\u274c ${cevap}` : `\u{1F50D} ${cevap}`;
       }
-      case 'karşılaştır': {
+      case 'kar\u015f\u0131la\u015ft\u0131r': {
         const parts = args.split('|');
-        const cevap = this.kernel.compare(parts[0].trim(), parts[1].trim());
-        return cevap === 'Bilmiyorum' ? `❌ ${cevap}` : `📊 ${cevap}`;
+        const result = this.kernel.compare(parts[0].trim(), parts[1].trim());
+        const cevap = result.data.answer;
+        return cevap === 'Bilmiyorum' ? `\u274c ${cevap}` : `\u{1F4CA} ${cevap}`;
       }
       case 'llm-sor': {
-        // execute() sync olduğu için LLM çağrısını döndüremeyiz.
-        // Bunun yerine AXIOM'un kendi cevabını + doğrulama sonucunu döndür.
-        // Gerçek LLM çağrısı için executeLLM() async metodunu kullan.
-        const axiomCevap = this.kernel.ask(args);
-        const dogrulama = this.kernel.verify(args);
-        const statusEmoji = { dogrulandi: '✅', celiski: '⚠️', bilinmiyor: '❓' };
-        const emoji = statusEmoji[dogrulama.status] || '❓';
-        let out = `🤖 AXIOM doğrulaması: ${emoji} ${dogrulama.status} (güven: ${dogrulama.confidence.toFixed(2)})`;
-        if (axiomCevap !== 'Bilmiyorum') out += `\n💬 AXIOM: ${axiomCevap}`;
-        if (dogrulama.evidence.length > 0) out += `\n📎 Kanıt: ${dogrulama.evidence[0]}`;
-        out += `\n⏳ LLM yanıtı için: ollama run ${this.llm.model} "${args}"`;
+        // execute() is sync, so it returns AXIOM's local check only.
+        const axiomResult = this.kernel.ask(args);
+        const axiomCevap = axiomResult.data.answer;
+        const dogrulamaResult = this.kernel.verify(args);
+        const dogrulama = dogrulamaResult.data;
+        const statusEmoji = { dogrulandi: '\u2705', celiski: '\u26A0\uFE0F', bilinmiyor: '\u2753' };
+        const emoji = statusEmoji[dogrulama.status] || '\u2753';
+        let out = `\u{1F916} AXIOM do\u011frulamas\u0131: ${emoji} ${dogrulama.status} (g\u00fcven: ${dogrulama.confidence.toFixed(2)})`;
+        if (axiomCevap !== 'Bilmiyorum') out += `\n\u{1F4AC} AXIOM: ${axiomCevap}`;
+        if (dogrulamaResult.evidence.length > 0) out += `\n\u{1F4CE} Kan\u0131t: ${dogrulamaResult.evidence[0].text}`;
+        out += `\n\u23F3 LLM yan\u0131t\u0131 i\u00e7in: ollama run ${this.llm.model} "${args}"`;
         return out;
       }
       case 'yükle': {
@@ -234,12 +237,12 @@ class CLI {
         rl.close();
         return;
       } else if (parsed.command === 'llm-sor') {
-        // 1. AXIOM'un mevcut bilgisiyle ön doğrulama
-        const dogrulama = this.kernel.verify(parsed.args);
-        const statusEmoji = { dogrulandi: '✅', celiski: '⚠️', bilinmiyor: '❓' };
-        console.log(`🔍 AXIOM: ${statusEmoji[dogrulama.status]} ${dogrulama.status} (güven: ${dogrulama.confidence.toFixed(2)})`);
-        if (dogrulama.evidence.length > 0) console.log(`   Kanıt: ${dogrulama.evidence[0]}`);
-
+        // 1. AXIOM pre-check
+        const dogrulamaResult = this.kernel.verify(parsed.args);
+        const dogrulama = dogrulamaResult.data;
+        const statusEmoji = { dogrulandi: '\u2705', celiski: '\u26A0\uFE0F', bilinmiyor: '\u2753' };
+        console.log(`\u{1F50D} AXIOM: ${statusEmoji[dogrulama.status]} ${dogrulama.status} (g\u00fcven: ${dogrulama.confidence.toFixed(2)})`);
+        if (dogrulamaResult.evidence.length > 0) console.log(`   Kan\u0131t: ${dogrulamaResult.evidence[0].text}`);
         // 2. LLM'ye sor
         console.log(`🤖 LLM'ye soruyorum (${this.llm.provider}/${this.llm.model})...`);
         const llmRes = await this.llm.ask(parsed.args);
@@ -251,15 +254,15 @@ class CLI {
           const llmText = llmRes.data.text;
           console.log(`\n💬 LLM: ${llmText}\n`);
 
-          // 3. LLM yanıtını AXIOM ile doğrula
-          const llmCheck = this.kernel.verify(llmText.slice(0, 300));
+          // 3. Verify LLM answer with AXIOM
+          const llmCheckResult = this.kernel.verify(llmText.slice(0, 300));
+          const llmCheck = llmCheckResult.data;
           if (llmCheck.status === 'celiski') {
-            console.log(`⚠️  AXIOM çelişki tespit etti: ${llmCheck.evidence[0]}`);
-            console.log(`   Bu yanıt hafızaya eklenmeyecek.`);
+            console.log(`\u26A0\uFE0F  AXIOM \u00e7eli\u015fki tespit etti: ${llmCheckResult.evidence[0]?.text || 'kan\u0131t yok'}`);
+            console.log(`   Bu yan\u0131t haf\u0131zaya eklenmeyecek.`);
           } else if (llmCheck.status === 'dogrulandi') {
-            console.log(`✅ AXIOM doğruladı (güven: ${llmCheck.confidence.toFixed(2)})`);
+            console.log(`\u2705 AXIOM do\u011frulad\u0131 (g\u00fcven: ${llmCheck.confidence.toFixed(2)})`);
           }
-
           // 4. Otomatik öğren — çelişki yoksa
           if (llmCheck.status !== 'celiski') {
             const result = this.kernel.learnFromLLM(llmText, { skipConflicts: true, maxSentences: 15 });

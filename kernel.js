@@ -87,7 +87,14 @@ class Kernel {
    * @param {string}  [opts.memoryPath]   - özel hafıza dosyası yolu
    */
   constructor(opts = {}) {
-    this.graph = new Graph(opts.memoryPath ? { memoryPath: opts.memoryPath } : {});
+    const graphOpts = {};
+    if (opts.memoryPath) graphOpts.memoryPath = opts.memoryPath;
+    if (opts.dbPath) graphOpts.dbPath = opts.dbPath;
+    if (opts.useSQLite !== undefined) graphOpts.useSQLite = opts.useSQLite;
+    if (opts.noLoad && !opts.memoryPath && !opts.dbPath && opts.useSQLite === undefined) {
+      graphOpts.useSQLite = false;
+    }
+    this.graph = new Graph(graphOpts);
     if (!opts.noLoad) this.graph.load();
     this._rust = hasRust ? new RustGraph() : null;
     this.plugins = new PluginManager(this);
@@ -99,13 +106,91 @@ class Kernel {
     this.plugins.register(plugin);
   }
 
+  _ok(type, data = null, evidence = [], meta = {}) {
+    return this._validateResult({
+      ok: true,
+      type,
+      data,
+      evidence: Array.isArray(evidence) ? evidence : [],
+      error: null,
+      meta,
+    });
+  }
+
+  _fail(type, code, message, meta = {}) {
+    return this._validateResult({
+      ok: false,
+      type,
+      data: null,
+      evidence: [],
+      error: { code, message },
+      meta,
+    });
+  }
+
+  _validateResult(result) {
+    if (!result || typeof result.ok !== 'boolean') throw new Error('Invalid result: ok must be boolean');
+    if (!Array.isArray(result.evidence)) throw new Error('Invalid result: evidence must be array');
+    if (result.type === 'verify' && result.data) {
+      const statuses = new Set(['dogrulandi', 'celiski', 'bilinmiyor']);
+      if (!statuses.has(result.data.status)) throw new Error('Invalid verify status: ' + result.data.status);
+      if (typeof result.data.confidence !== 'number' || result.data.confidence < 0 || result.data.confidence > 1) {
+        throw new Error('Invalid confidence: must be between 0 and 1');
+      }
+    }
+    return result;
+  }
+
+  _edgeRef(edge) {
+    return { from: edge.from, to: edge.to, relation: edge.relation };
+  }
+
+  _edgeEvidence(edge, kind = 'direct_edge', confidence) {
+    return {
+      kind,
+      text: `${edge.from} --[${edge.relation}]--> ${edge.to}`,
+      confidence: Math.max(0, Math.min(1, confidence ?? edge.confidence ?? edge.weight ?? 0)),
+      nodes: [edge.from, edge.to],
+      edges: [this._edgeRef(edge)],
+    };
+  }
+
+  _pathEvidence(pathArr, kind = 'path', confidence = 0.5) {
+    const edges = [];
+    for (let i = 0; i < pathArr.length - 1; i++) {
+      const direct = this.graph.getEdges(pathArr[i]).find(e => e.to === pathArr[i + 1]);
+      const reverse = this.graph.getInEdges(pathArr[i]).find(e => e.from === pathArr[i + 1]);
+      const edge = direct || reverse;
+      if (edge) edges.push(this._edgeRef(edge));
+    }
+    return {
+      kind,
+      text: pathArr.join(' → '),
+      confidence: Math.max(0, Math.min(1, confidence)),
+      nodes: [...pathArr],
+      edges,
+    };
+  }
+
+  _contradictionEvidence(contradiction) {
+    return {
+      kind: 'contradiction',
+      text: `${contradiction.node} → ${contradiction.targets.join(', ')}`,
+      confidence: Math.max(0, Math.min(1, contradiction.confidence || 0.7)),
+      nodes: [contradiction.node, ...contradiction.targets],
+      edges: contradiction.targets.map(to => ({ from: contradiction.node, to, relation: 'tür' })),
+    };
+  }
+
   learn(text) {
     const ev = this.plugins.emit('beforeLearn', { text });
     text = ev.text;
 
     const parsed = parseSentence(text);
-    if (!parsed) return;
+    if (!parsed) return this._ok('learn', { learned: 0, skipped: 1, conflicts: [] }, []);
 
+    let learned = 0;
+    const evidence = [];
     for (const { subject, predicate } of parsed) {
       if (!subject || STOP_WORDS.has(subject)) continue;
 
@@ -116,9 +201,11 @@ class Kernel {
         const { object, relation } = rel;
         if (!STOP_WORDS.has(object)) {
           this.graph.addNode(object, object);
-          this.graph.addEdge(subject, object, relation);
+          const edge = this.graph.addEdge(subject, object, relation, { source: 'learn', evidence: [text] });
           this.graph.addTag(subject, object, 0.3);
           this._crossLink(subject, object, relation);
+          learned++;
+          if (edge) evidence.push(this._edgeEvidence(edge));
         }
       }
     }
@@ -129,6 +216,8 @@ class Kernel {
     if (this._rust) {
       this._rust.learn(text).catch(() => {});
     }
+
+    return this._ok('learn', { learned, skipped: parsed.length - learned, conflicts: [] }, evidence);
   }
 
   _parsePredicate(predicate) {
@@ -183,26 +272,31 @@ class Kernel {
     const ev = this.plugins.emit('beforeAsk', { question });
     question = ev.question;
 
-    // Soru kelimelerini temizle: "kedi nedir" → "kedi"
     const cleaned = question
       .toLowerCase()
       .trim()
-      .replace(/\b(nedir|kimdir|nasıl|nerede|nereden|nereye|niçin|niye|kaç|hangi)\b/gi, '')
+      .replace(/\b(nedir|kimdir|nas\u0131l|nerede|nereden|nereye|ni\u00e7in|niye|ka\u00e7|hangi)\b/gi, '')
       .trim();
 
     const parts = cleaned.split(/\s+/).filter(Boolean);
     const subject = normalizeTurkish(parts[0] || '');
-
     const node = this.graph.getNode(subject);
+    const evidence = [];
     let answer;
-    if (!node) { answer = 'Bilmiyorum'; } else {
+
+    if (!node) {
+      answer = 'Bilmiyorum';
+    } else {
       const edges = this.graph.getEdges(subject);
-      if (edges.length === 0) { answer = 'Bilmiyorum'; } else {
+      if (edges.length === 0) {
+        answer = 'Bilmiyorum';
+      } else {
         const sorted = [...edges].sort((a, b) => b.weight - a.weight);
         const results = [];
 
         for (const edge of sorted) {
-          if (edge.relation === 'tür') {
+          evidence.push(this._edgeEvidence(edge));
+          if (edge.relation === 't\u00fcr') {
             if (!results.includes(edge.to)) results.push(edge.to);
             const transitive = this._walkTransitive(edge.to, [], 2);
             for (const t of transitive) {
@@ -218,8 +312,9 @@ class Kernel {
         answer = results.length === 0 ? 'Bilmiyorum' : `${subject} ${results.join(', ')}`;
       }
     }
+
     this.plugins.emit('afterAsk', { question, answer });
-    return answer;
+    return this._ok('ask', { answer, subject: subject || null, unknown: answer === 'Bilmiyorum' }, evidence);
   }
 
   _walkTransitive(nodeId, visited, depth) {
@@ -305,27 +400,57 @@ class Kernel {
   reason(subject) {
     const normalized = normalizeTurkish(subject);
     const node = this.graph.getNode(normalized);
-    if (!node) return 'Bilmiyorum';
+    if (!node) {
+      return this._ok('reason', {
+        subject: normalized,
+        answer: 'Bilmiyorum',
+        forward: [],
+        backward: [],
+        cycles: [],
+      }, []);
+    }
 
     const ileri = this._forwardChain(normalized, [], new Set(), 4);
     const geri = this._backwardChain(normalized, [], new Set(), 4);
     const cycle = this._detectCycle(normalized, new Set(), []);
+    const evidence = [
+      ...ileri.map(edge => this._edgeEvidence(edge, 'path', 0.5)),
+      ...geri.map(edge => this._edgeEvidence(edge, 'path', 0.5)),
+    ];
 
-    let out = normalized + ':';
-    if (ileri.length > 0) out += '\n  neden olur: ' + ileri.map(e => e.to + ' [' + e.relation + ']').join(', ');
-    if (geri.length > 0) out += '\n  nedeni: ' + geri.map(e => e.from + ' [' + e.relation + ']').join(', ');
+    let answer = normalized + ':';
+    if (ileri.length > 0) answer += '\n  neden olur: ' + ileri.map(e => e.to + ' [' + e.relation + ']').join(', ');
+    if (geri.length > 0) answer += '\n  nedeni: ' + geri.map(e => e.from + ' [' + e.relation + ']').join(', ');
     if (cycle) {
-      out += '\n  ⚠ döngü tespit edildi: ' + cycle.join(' → ');
+      answer += '\n  ? d?ng? tespit edildi: ' + cycle.join(' ? ');
+      evidence.push(this._pathEvidence(cycle, 'path', 0.4));
       const nedenOnce = this._resolveCycleOrder(cycle);
-      if (nedenOnce) out += '\n  → ilk neden: ' + nedenOnce;
+      if (nedenOnce) answer += '\n  ? ilk neden: ' + nedenOnce;
     }
-    return out || 'Bilmiyorum';
+
+    return this._ok('reason', {
+      subject: normalized,
+      answer: answer || 'Bilmiyorum',
+      forward: ileri.map(edge => this._edgeRef(edge)),
+      backward: geri.map(edge => this._edgeRef(edge)),
+      cycles: cycle ? [cycle] : [],
+    }, evidence);
   }
 
   compare(a, b) {
     const na = this.graph.getNode(normalizeTurkish(a));
     const nb = this.graph.getNode(normalizeTurkish(b));
-    if (!na || !nb) return 'Bilmiyorum';
+    if (!na || !nb) {
+      return this._ok('compare', {
+        a: normalizeTurkish(a),
+        b: normalizeTurkish(b),
+        answer: 'Bilmiyorum',
+        common: [],
+        onlyA: [],
+        onlyB: [],
+        paths: [],
+      }, []);
+    }
 
     const aN = na.id;
     const bN = nb.id;
@@ -337,16 +462,30 @@ class Kernel {
     const ortak = aEdges.filter(e => bSet.has(e.to + '|' + e.relation));
     const aFark = aEdges.filter(e => !bSet.has(e.to + '|' + e.relation));
     const bFark = bEdges.filter(e => !aSet.has(e.to + '|' + e.relation));
-
     const foundPath = this._findPath(aN, bN, new Set(), [], 5);
 
-    let out = '📊 ' + aN + ' vs ' + bN + ':';
-    if (ortak.length > 0) out += '\n  ortak: ' + ortak.map(e => e.to + ' [' + e.relation + ']').join(', ');
-    if (aFark.length > 0) out += '\n  sadece ' + aN + ': ' + aFark.map(e => e.to + ' [' + e.relation + ']').join(', ');
-    if (bFark.length > 0) out += '\n  sadece ' + bN + ': ' + bFark.map(e => e.to + ' [' + e.relation + ']').join(', ');
-    if (foundPath) out += '\n  bağlantı: ' + foundPath.join(' → ');
+    const evidence = [
+      ...ortak.map(edge => this._edgeEvidence(edge)),
+      ...aFark.map(edge => this._edgeEvidence(edge, 'partial_match', 0.35)),
+      ...bFark.map(edge => this._edgeEvidence(edge, 'partial_match', 0.35)),
+    ];
+    if (foundPath) evidence.push(this._pathEvidence(foundPath, 'path', 0.5));
 
-    return out;
+    let answer = '?? ' + aN + ' vs ' + bN + ':';
+    if (ortak.length > 0) answer += '\n  ortak: ' + ortak.map(e => e.to + ' [' + e.relation + ']').join(', ');
+    if (aFark.length > 0) answer += '\n  sadece ' + aN + ': ' + aFark.map(e => e.to + ' [' + e.relation + ']').join(', ');
+    if (bFark.length > 0) answer += '\n  sadece ' + bN + ': ' + bFark.map(e => e.to + ' [' + e.relation + ']').join(', ');
+    if (foundPath) answer += '\n  ba?lant?: ' + foundPath.join(' ? ');
+
+    return this._ok('compare', {
+      a: aN,
+      b: bN,
+      answer,
+      common: ortak.map(edge => this._edgeRef(edge)),
+      onlyA: aFark.map(edge => this._edgeRef(edge)),
+      onlyB: bFark.map(edge => this._edgeRef(edge)),
+      paths: foundPath ? [foundPath] : [],
+    }, evidence);
   }
 
   _forwardChain(id, chain, visited, depth) {
@@ -494,71 +633,67 @@ class Kernel {
    */
   verify(statement) {
     const parts = statement.toLowerCase().trim().split(/\s+/).filter(Boolean);
-    if (parts.length < 2) return { status: 'bilinmiyor', confidence: 0, evidence: [] };
+    if (parts.length < 2) {
+      return this._ok('verify', { status: 'bilinmiyor', confidence: 0 }, []);
+    }
 
     const subject = normalizeTurkish(parts[0]);
     const subjectNode = this.graph.getNode(subject);
-
-    // Özne grafikte yok → bilinmiyor
-    if (!subjectNode) return { status: 'bilinmiyor', confidence: 0, evidence: [] };
-
-    const edges = this.graph.getEdges(subject);
-
-    // Direkt kenar eşleşmesi: "kedi balık yer" → kedi→balık yer kenarı var mı?
-    const predicate = parts.slice(1).join(' ');
-    const directEdge = edges.find(e => {
-      const edgeStr = e.to + (e.relation !== 'özellik' ? '' : '');
-      return predicate.includes(e.to) || e.to === predicate;
-    });
-    if (directEdge) {
-      return {
-        status: 'dogrulandi',
-        confidence: Math.min(0.95, directEdge.weight + 0.4),
-        evidence: [`${subject} --[${directEdge.relation}]--> ${directEdge.to}`],
-      };
+    if (!subjectNode) {
+      return this._ok('verify', { status: 'bilinmiyor', confidence: 0 }, []);
     }
 
-    // Çelişki kontrolü: aynı özne için zıt ifade var mı?
+    const edges = this.graph.getEdges(subject);
+    const predicate = parts.slice(1).join(' ');
+    const directEdge = edges.find(e => predicate.includes(e.to) || e.to === predicate);
+    if (directEdge) {
+      const confidence = Math.min(0.95, (directEdge.confidence ?? directEdge.weight ?? 0.5) + 0.4);
+      return this._ok('verify', { status: 'dogrulandi', confidence }, [this._edgeEvidence(directEdge, 'direct_edge', confidence)]);
+    }
+
     const cons = this.detectContradictions();
     const subjCons = cons.filter(c => c.node === subject);
     if (subjCons.length > 0) {
-      return {
-        status: 'celiski',
-        confidence: 0.7,
-        evidence: subjCons.map(c => c.node + ' → ' + c.targets.join(', ')),
-      };
+      const evidence = subjCons.map(c => this._contradictionEvidence(c));
+      return this._ok('verify', { status: 'celiski', confidence: 0.7 }, evidence);
     }
 
-    // Yol tabanlı kanıt: özne → ... → son kelime (ek temizlenerek)
     const rawTarget = parts[parts.length - 1];
-    // -dır/-dir/-dur/-dür ekini temizle
-    const cleanTarget = rawTarget.replace(/(dır|dir|dur|dür|tır|tir|tur|tür)$/i, '');
+    const cleanTarget = rawTarget.replace(/(d\u0131r|dir|dur|d\u00fcr|t\u0131r|tir|tur|t\u00fcr)$/i, '');
     const target = normalizeTurkish(cleanTarget || rawTarget);
     if (target !== subject) {
       const foundPath = this._findPath(subject, target, new Set(), [], 4);
       if (foundPath) {
-        return {
-          status: 'dogrulandi',
-          confidence: 0.5,
-          evidence: [foundPath.join(' → ')],
-        };
+        return this._ok('verify', { status: 'dogrulandi', confidence: 0.5 }, [this._pathEvidence(foundPath, 'path', 0.5)]);
       }
     }
 
-    // Kısmi eşleşme: ifadedeki herhangi bir kelime kenar olarak var mı?
     for (const word of parts.slice(1)) {
       const w = normalizeTurkish(word);
       const match = edges.find(e => e.to === w || e.to.includes(w));
       if (match) {
-        return {
-          status: 'dogrulandi',
-          confidence: 0.35,
-          evidence: [`${subject} --[${match.relation}]--> ${match.to}`],
-        };
+        return this._ok('verify', { status: 'dogrulandi', confidence: 0.35 }, [this._edgeEvidence(match, 'partial_match', 0.35)]);
       }
     }
 
-    return { status: 'bilinmiyor', confidence: 0, evidence: [] };
+    return this._ok('verify', { status: 'bilinmiyor', confidence: 0 }, []);
+  }
+
+  dream(opts = {}) {
+    const dreamer = new Dream(this);
+    const hypotheses = dreamer.dream(opts);
+    const evidence = hypotheses.map(h => {
+      const nodes = [h.from, h.to, h.node, ...(h.targets || [])].filter(Boolean);
+      const edges = h.from && h.to ? [{ from: h.from, to: h.to, relation: h.relation || h.type || 'hypothesis' }] : [];
+      return {
+        kind: 'hypothesis',
+        text: h.from && h.to ? `${h.from} ? ${h.to}` : `${nodes.join(' ? ') || 'hypothesis'}`,
+        confidence: Math.max(0, Math.min(1, h.confidence || 0)),
+        nodes,
+        edges,
+      };
+    });
+    return this._ok('dream', { hypotheses }, evidence);
   }
 
   learnDocument(text) {
@@ -614,7 +749,7 @@ class Kernel {
       // Çelişki kontrolü
       if (skipConflicts) {
         const check = this.verify(cleaned);
-        if (check.status === 'celiski') {
+        if (check.data.status === 'celiski') {
           conflicts.push(cleaned);
           skipped++;
           continue;
