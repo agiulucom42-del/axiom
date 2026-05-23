@@ -115,6 +115,33 @@ POST /dogrula  { "statement": "kedi hayvandır" }
 
 Olası `status` değerleri: `dogrulandi` · `celiski` · `bilinmiyor`
 
+---
+
+## Core API Contract
+
+AXIOM v2 core methods (`learn`, `ask`, `verify`, `reason`, `compare`, `dream`) return the same structured envelope:
+
+```js
+{
+  ok: true,
+  type: "verify",
+  data: { status: "dogrulandi", confidence: 0.9 },
+  evidence: [
+    {
+      kind: "direct_edge",
+      text: "kedi --[t\u00fcr]--> hayvan",
+      confidence: 0.9,
+      nodes: ["kedi", "hayvan"],
+      edges: [{ from: "kedi", to: "hayvan", relation: "t\u00fcr" }]
+    }
+  ],
+  error: null,
+  meta: {}
+}
+```
+
+CLI and legacy REST endpoints keep their user-facing output stable; the structured contract is for code that imports `Kernel` directly.
+
 ### Belge Yükleme
 
 ```

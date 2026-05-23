@@ -1,13 +1,20 @@
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert');
 const http = require('http');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const PORT = 34567;
 const BASE = `http://localhost:${PORT}`;
 let server;
+let tempDir;
 
 before(() => {
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'axiom-server-'));
   process.env.PORT = String(PORT);
+  process.env.AXIOM_MEMORY_PATH = path.join(tempDir, 'memory.json');
+  process.env.AXIOM_DB_PATH = path.join(tempDir, 'memory.db');
   server = require('./server');
   server.unref();
 });
@@ -15,6 +22,10 @@ before(() => {
 after(() => {
   server.closeAllConnections?.();
   server.close();
+  server.closeAxiom?.();
+  delete process.env.AXIOM_MEMORY_PATH;
+  delete process.env.AXIOM_DB_PATH;
+  if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
 describe('Server - API', () => {

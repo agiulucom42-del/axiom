@@ -52,23 +52,23 @@ describe('kernel.verify()', () => {
     const k = freshK();
     k.learn('kedi balık yer');
     const res = k.verify('kedi balık yer');
-    assert(res.status === 'dogrulandi', `Beklenen dogrulandi, gelen: ${res.status}`);
-    assert(res.confidence > 0);
+    assert(res.data.status === 'dogrulandi', `Beklenen dogrulandi, gelen: ${res.data.status}`);
+    assert(res.data.confidence > 0);
     assert(res.evidence.length > 0);
   });
 
   it('returns bilinmiyor for unknown statement', () => {
     const k = freshK();
     const res = k.verify('uçan fil muz sever');
-    assert.strictEqual(res.status, 'bilinmiyor');
-    assert.strictEqual(res.confidence, 0);
+    assert.strictEqual(res.data.status, 'bilinmiyor');
+    assert.strictEqual(res.data.confidence, 0);
   });
 
   it('returns bilinmiyor for unknown subject', () => {
     const k = freshK();
     k.learn('kedi balık yer');
     const res = k.verify('robot düşünür');
-    assert.strictEqual(res.status, 'bilinmiyor');
+    assert.strictEqual(res.data.status, 'bilinmiyor');
   });
 
   it('finds path-based evidence', () => {
@@ -76,7 +76,7 @@ describe('kernel.verify()', () => {
     k.learn('kedi hayvandır');
     k.learn('hayvan canlıdır');
     const res = k.verify('kedi canlıdır');
-    assert(res.status === 'dogrulandi', `Beklenen dogrulandi, gelen: ${res.status}`);
+    assert(res.data.status === 'dogrulandi', `Beklenen dogrulandi, gelen: ${res.data.status}`);
     assert(res.evidence.length > 0);
   });
 
@@ -89,7 +89,7 @@ describe('kernel.verify()', () => {
     k.graph.addEdge('kedi', 'bitki', 'tür'); // çoklu-tür çelişkisi
     const res = k.verify('kedi hayvan');
     // Çelişki varsa celiski, yoksa dogrulandi
-    assert(res.status === 'celiski' || res.status === 'dogrulandi');
+    assert(res.data.status === 'celiski' || res.data.status === 'dogrulandi');
   });
 
   it('evidence array is always present', () => {
@@ -109,8 +109,8 @@ describe('kernel.learnDocument()', () => {
     const text = 'kedi balık yer\nköpek kemik sever\nkuş uçar';
     const count = k.learnDocument(text);
     assert(count === 3);
-    assert(k.ask('kedi balık yer') !== 'Bilmiyorum');
-    assert(k.ask('kuş uçar') !== 'Bilmiyorum');
+    assert(k.ask('kedi balık yer').data.answer !== 'Bilmiyorum');
+    assert(k.ask('kuş uçar').data.answer !== 'Bilmiyorum');
   });
 
   it('skips comments and short lines', () => {

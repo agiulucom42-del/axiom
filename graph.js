@@ -61,12 +61,20 @@ class Graph {
         to_id TEXT NOT NULL,
         relation TEXT NOT NULL,
         weight REAL NOT NULL DEFAULT 0.5,
+        confidence REAL NOT NULL DEFAULT 0.5,
+        source TEXT NOT NULL DEFAULT 'manual',
+        evidence TEXT NOT NULL DEFAULT '[]',
         created INTEGER NOT NULL,
         UNIQUE(from_id, to_id, relation)
       );
       CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_id);
       CREATE INDEX IF NOT EXISTS idx_edges_to   ON edges(to_id);
     `);
+
+    const edgeColumns = this._db.prepare('PRAGMA table_info(edges)').all().map(c => c.name);
+    if (!edgeColumns.includes('confidence')) this._db.exec('ALTER TABLE edges ADD COLUMN confidence REAL NOT NULL DEFAULT 0.5');
+    if (!edgeColumns.includes('source')) this._db.exec("ALTER TABLE edges ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
+    if (!edgeColumns.includes('evidence')) this._db.exec("ALTER TABLE edges ADD COLUMN evidence TEXT NOT NULL DEFAULT '[]'");
 
     // Prepared statements
     this._stmts = {
@@ -83,10 +91,13 @@ class Graph {
       deleteEdgesOf: this._db.prepare('DELETE FROM edges WHERE from_id = ? OR to_id = ?'),
       touchNode: this._db.prepare('UPDATE nodes SET last_accessed = ? WHERE id = ?'),
       upsertEdge: this._db.prepare(`
-        INSERT INTO edges (from_id, to_id, relation, weight, created)
-        VALUES (?, ?, ?, 0.5, ?)
+        INSERT INTO edges (from_id, to_id, relation, weight, confidence, source, evidence, created)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(from_id, to_id, relation) DO UPDATE SET
-          weight = MIN(1.0, weight + 0.1)
+          weight = excluded.weight,
+          confidence = excluded.confidence,
+          source = excluded.source,
+          evidence = excluded.evidence
       `),
       getEdge: this._db.prepare('SELECT * FROM edges WHERE from_id = ? AND to_id = ? AND relation = ?'),
       getEdges: this._db.prepare('SELECT * FROM edges WHERE from_id = ?'),
@@ -96,7 +107,7 @@ class Graph {
       countEdges: this._db.prepare('SELECT COUNT(*) as c FROM edges'),
       allNodes: this._db.prepare('SELECT * FROM nodes'),
       allEdges: this._db.prepare('SELECT * FROM edges'),
-      updateEdgeWeight: this._db.prepare('UPDATE edges SET weight = ? WHERE from_id = ? AND to_id = ? AND relation = ?'),
+      updateEdgeWeight: this._db.prepare('UPDATE edges SET weight = ?, confidence = ?, source = ?, evidence = ? WHERE from_id = ? AND to_id = ? AND relation = ?'),
       updateNodeVector: this._db.prepare('UPDATE nodes SET vector = ? WHERE id = ?'),
     };
   }
@@ -168,21 +179,51 @@ class Graph {
 
   // ─── Edge işlemleri ───────────────────────────────────────────────────────
 
-  addEdge(fromId, toId, relation) {
+  addEdge(fromId, toId, relation, opts = {}) {
     if (!this._nodes[fromId] || !this._nodes[toId]) return null;
     const existing = this.getEdge(fromId, toId, relation);
+    const nextEvidence = Array.isArray(opts.evidence) ? opts.evidence : [];
     if (existing) {
-      existing.weight = Math.min(1, existing.weight + 0.1);
+      existing.weight = Math.min(1, opts.weight ?? existing.weight + 0.1);
+      existing.confidence = Math.max(existing.confidence ?? existing.weight, opts.confidence ?? existing.confidence ?? existing.weight);
+      if (opts.source) existing.source = opts.source;
+      existing.evidence = [...new Set([...(existing.evidence || []), ...nextEvidence])];
       if (this._db) {
-        this._stmts.updateEdgeWeight.run(existing.weight, fromId, toId, relation);
+        this._stmts.updateEdgeWeight.run(
+          existing.weight,
+          existing.confidence,
+          existing.source || 'manual',
+          JSON.stringify(existing.evidence || []),
+          fromId,
+          toId,
+          relation
+        );
       }
       return existing;
     }
-    const edge = { from: fromId, to: toId, relation, weight: 0.5, created: Date.now() };
+    const edge = {
+      from: fromId,
+      to: toId,
+      relation,
+      weight: opts.weight ?? 0.5,
+      confidence: opts.confidence ?? opts.weight ?? 0.5,
+      source: opts.source || 'manual',
+      evidence: nextEvidence,
+      created: Date.now(),
+    };
     this._edges.push(edge);
     this._indexEdge(edge);
     if (this._db) {
-      this._stmts.upsertEdge.run(fromId, toId, relation, edge.created);
+      this._stmts.upsertEdge.run(
+        fromId,
+        toId,
+        relation,
+        edge.weight,
+        edge.confidence,
+        edge.source,
+        JSON.stringify(edge.evidence || []),
+        edge.created
+      );
     }
     return edge;
   }
@@ -312,10 +353,23 @@ class Graph {
         }
         for (const edge of this._edges) {
           this._db.prepare(`
-            INSERT INTO edges (from_id, to_id, relation, weight, created)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(from_id, to_id, relation) DO UPDATE SET weight = excluded.weight
-          `).run(edge.from, edge.to, edge.relation, edge.weight, edge.created);
+            INSERT INTO edges (from_id, to_id, relation, weight, confidence, source, evidence, created)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(from_id, to_id, relation) DO UPDATE SET
+              weight = excluded.weight,
+              confidence = excluded.confidence,
+              source = excluded.source,
+              evidence = excluded.evidence
+          `).run(
+            edge.from,
+            edge.to,
+            edge.relation,
+            edge.weight,
+            edge.confidence ?? edge.weight ?? 0.5,
+            edge.source || 'manual',
+            JSON.stringify(edge.evidence || []),
+            edge.created
+          );
         }
       });
       saveAll();
@@ -359,6 +413,9 @@ class Graph {
             to: row.to_id,
             relation: row.relation,
             weight: row.weight,
+            confidence: row.confidence ?? row.weight ?? 0.5,
+            source: row.source || 'manual',
+            evidence: JSON.parse(row.evidence || '[]'),
             created: row.created,
           }));
           this._rebuildIndex();
@@ -382,7 +439,12 @@ class Graph {
     try {
       const data = JSON.parse(fs.readFileSync(this.memoryPath, 'utf-8'));
       this._nodes = data.nodes || {};
-      this._edges = data.edges || [];
+      this._edges = (data.edges || []).map(edge => ({
+        ...edge,
+        confidence: edge.confidence ?? edge.weight ?? 0.5,
+        source: edge.source || 'manual',
+        evidence: Array.isArray(edge.evidence) ? edge.evidence : [],
+      }));
       this._rebuildIndex();
 
       if (fs.existsSync(this._embeddingPath)) {

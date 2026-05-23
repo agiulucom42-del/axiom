@@ -1,7 +1,12 @@
 const http = require('http');
 const CLI = require('./cli');
 
-const cli = new CLI();
+const kernelOpts = {};
+if (process.env.AXIOM_MEMORY_PATH) kernelOpts.memoryPath = process.env.AXIOM_MEMORY_PATH;
+if (process.env.AXIOM_DB_PATH) kernelOpts.dbPath = process.env.AXIOM_DB_PATH;
+if (process.env.AXIOM_USE_SQLITE === 'false') kernelOpts.useSQLite = false;
+
+const cli = new CLI({ kernel: kernelOpts });
 cli.kernel.graph.load();
 
 // --- Güvenlik sabitleri ---
@@ -21,18 +26,27 @@ function checkRateLimit(ip) {
   return entry.count <= RATE_LIMIT_MAX;
 }
 
-setInterval(() => {
+const rateLimitCleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of rateLimitMap) {
     if (now > entry.resetAt) rateLimitMap.delete(ip);
   }
 }, RATE_LIMIT_WINDOW);
+rateLimitCleanupTimer.unref?.();
 
 function sanitizeInput(raw) {
   if (typeof raw !== 'string') return '';
   let s = raw.slice(0, MAX_INPUT_LENGTH);
   s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
   return s.trim();
+}
+
+function legacyVerify(result) {
+  return {
+    status: result.data.status,
+    confidence: result.data.confidence,
+    evidence: result.evidence.map(e => e.text),
+  };
 }
 
 // Graf verisini D3 formatına dönüştür
@@ -441,7 +455,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         // AXIOM ön doğrulama
-        const axiomCheck = cli.kernel.verify(question);
+        const axiomCheck = legacyVerify(cli.kernel.verify(question));
 
         // LLM'ye sor
         const LLMAdapter = require('./llmAdapter');
@@ -461,7 +475,7 @@ const server = http.createServer(async (req, res) => {
         const llmText = llmRes.data.text;
 
         // LLM yanıtını doğrula
-        const llmCheck = cli.kernel.verify(llmText.slice(0, 300));
+        const llmCheck = legacyVerify(cli.kernel.verify(llmText.slice(0, 300)));
 
         // Otomatik öğren
         let learnResult = null;
@@ -509,7 +523,7 @@ const server = http.createServer(async (req, res) => {
             res.end(JSON.stringify({ error: 'statement veya text gerekli' }));
             return;
           }
-          const result = cli.kernel.verify(text);
+          const result = legacyVerify(cli.kernel.verify(text));
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           res.end(JSON.stringify(result));
         } catch (e) {
@@ -525,7 +539,7 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: 'statement parametresi gerekli' }));
       return;
     }
-    const result = cli.kernel.verify(text);
+    const result = legacyVerify(cli.kernel.verify(text));
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(result));
     return;
@@ -629,5 +643,9 @@ server.listen(PORT, () => {
   console.log(`🌐 AXIOM web arayüzü: http://localhost:${PORT}`);
   console.log(`   Graf görünümü: http://localhost:${PORT} → "Graf" sekmesi`);
 });
+
+server.closeAxiom = () => {
+  cli.kernel.graph.close();
+};
 
 module.exports = server;
