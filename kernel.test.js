@@ -3,8 +3,8 @@ const assert = require('node:assert');
 const Kernel = require('./kernel');
 
 // Test için temiz kernel — memory.json yüklemez
-function freshKernel() {
-  return new Kernel({ noLoad: true });
+function freshKernel(opts = {}) {
+  return new Kernel({ noLoad: true, ...opts });
 }
 
 describe('Kernel - Öğrenme', () => {
@@ -209,11 +209,16 @@ describe('Kernel - Core API Contract', () => {
     const k = freshKernel();
     k.learn('kedi hayvandir');
     assertEnvelope(k.learn('kopek hayvandir'), 'learn');
-    assertEnvelope(k.ask('kedi nedir'), 'ask');
-    assertEnvelope(k.verify('kedi hayvandir'), 'verify');
+    const askResult = k.ask('kedi nedir');
+    const verifyResult = k.verify('kedi hayvandir');
+    assertEnvelope(askResult, 'ask');
+    assertEnvelope(verifyResult, 'verify');
     assertEnvelope(k.reason('kedi'), 'reason');
     assertEnvelope(k.compare('kedi', 'kopek'), 'compare');
     assertEnvelope(k.dream(), 'dream');
+    assert.strictEqual(askResult.meta.contractVersion, Kernel.CONTRACT_VERSION);
+    assert.strictEqual(verifyResult.meta.contractVersion, Kernel.CONTRACT_VERSION);
+    assert.strictEqual(verifyResult.meta.paranoidMode, false);
   });
 
   it('validateResult catches invalid result shapes', () => {
@@ -245,5 +250,22 @@ describe('Kernel - Core API Contract', () => {
     assert.strictEqual(k.graph.getNode('kopek'), null);
     assert.strictEqual(k.graph.getNode('cocuk'), null);
     assert.strictEqual(k.graph.getNode('ogrenme'), null);
+  });
+
+  it('paranoidMode blocks learnFromLLM with a typed error', () => {
+    const k = freshKernel({ paranoidMode: true });
+    const result = k.learnFromLLM('kedi hayvandir');
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.error.code, Kernel.AXIOM_ERROR.LLM_DISABLED);
+    assert.strictEqual(result.learned, 0);
+    assert.strictEqual(result.skipped, 0);
+    assert.strictEqual(result.meta.contractVersion, Kernel.CONTRACT_VERSION);
+    assert.strictEqual(result.meta.paranoidMode, true);
+  });
+
+  it('exports error catalog and contract version on the class', () => {
+    assert.strictEqual(Kernel.CONTRACT_VERSION, '1.0.0');
+    assert.ok(Kernel.AXIOM_ERROR);
+    assert.strictEqual(Kernel.AXIOM_ERROR.LLM_DISABLED, 'LLM_DISABLED');
   });
 });

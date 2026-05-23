@@ -119,7 +119,7 @@ Olası `status` değerleri: `dogrulandi` · `celiski` · `bilinmiyor`
 
 ## Core API Contract
 
-AXIOM v2 core methods (`learn`, `ask`, `verify`, `reason`, `compare`, `dream`) return the same structured envelope:
+AXIOM v2 core methods (`learn`, `ask`, `verify`, `reason`, `compare`, `dream`) return the same structured envelope. The current contract version is `1.0.0`:
 
 ```js
 {
@@ -141,6 +141,10 @@ AXIOM v2 core methods (`learn`, `ask`, `verify`, `reason`, `compare`, `dream`) r
 ```
 
 CLI and legacy REST endpoints keep their user-facing output stable; the structured contract is for code that imports `Kernel` directly.
+
+### Paranoid Mode
+
+`paranoidMode` disables `learnFromLLM` and any external LLM-backed learning path while keeping local symbolic reasoning active.
 
 ### Belge Yükleme
 

@@ -9,6 +9,17 @@ try { RustGraph = require('./rustGraph'); } catch {}
 const RUST_BIN = path.join(__dirname, 'axiom-core', 'target', 'x86_64-pc-windows-gnu', 'release', 'axiom-core.exe');
 const hasRust = fs.existsSync(RUST_BIN) && typeof RustGraph !== 'undefined';
 
+const AXIOM_ERROR = Object.freeze({
+  INVALID_INPUT: 'INVALID_INPUT',
+  CONFLICT_DETECTED: 'CONFLICT_DETECTED',
+  GRAPH_UNAVAILABLE: 'GRAPH_UNAVAILABLE',
+  NORMALIZATION_FAILED: 'NORMALIZATION_FAILED',
+  LLM_DISABLED: 'LLM_DISABLED',
+  INTERNAL: 'INTERNAL',
+});
+
+const CONTRACT_VERSION = '1.0.0';
+
 // --- Türkçe NLP yardımcıları ---
 
 // Turkish i/ı normalization for stable node ids.
@@ -96,6 +107,8 @@ class Kernel {
     }
     this.graph = new Graph(graphOpts);
     if (!opts.noLoad) this.graph.load();
+    this.paranoidMode = opts.paranoidMode === true || process.env.AXIOM_PARANOID === '1';
+    this.contractVersion = CONTRACT_VERSION;
     this._rust = hasRust ? new RustGraph() : null;
     this.plugins = new PluginManager(this);
     const pDir = path.join(__dirname, 'plugins');
@@ -107,13 +120,19 @@ class Kernel {
   }
 
   _ok(type, data = null, evidence = [], meta = {}) {
+    const stats = this.graph && typeof this.graph.getStats === 'function' ? this.graph.getStats() : {};
     return this._validateResult({
       ok: true,
       type,
       data,
       evidence: Array.isArray(evidence) ? evidence : [],
       error: null,
-      meta,
+      meta: {
+        contractVersion: this.contractVersion,
+        backend: stats.backend || 'unknown',
+        paranoidMode: this.paranoidMode,
+        ...meta,
+      },
     });
   }
 
@@ -124,7 +143,11 @@ class Kernel {
       data: null,
       evidence: [],
       error: { code, message },
-      meta,
+      meta: {
+        contractVersion: this.contractVersion,
+        paranoidMode: this.paranoidMode,
+        ...meta,
+      },
     });
   }
 
@@ -722,6 +745,23 @@ class Kernel {
    * @returns {{ learned: number, skipped: number, conflicts: string[] }}
    */
   learnFromLLM(text, opts = {}) {
+    if (this.paranoidMode) {
+      return {
+        learned: 0,
+        skipped: 0,
+        conflicts: [],
+        ok: false,
+        error: {
+          code: AXIOM_ERROR.LLM_DISABLED,
+          message: 'Paranoid mode aktif: dış LLM çağrıları ve otomatik öğrenme engellendi.',
+        },
+        meta: {
+          contractVersion: this.contractVersion,
+          paranoidMode: this.paranoidMode,
+        },
+      };
+    }
+
     const skipConflicts = opts.skipConflicts !== false;
     const minWords     = opts.minWords     || 2;
     const maxSentences = opts.maxSentences || 20;
@@ -803,3 +843,5 @@ class Kernel {
 }
 
 module.exports = Kernel;
+module.exports.AXIOM_ERROR = AXIOM_ERROR;
+module.exports.CONTRACT_VERSION = CONTRACT_VERSION;

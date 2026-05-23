@@ -266,7 +266,9 @@ class CLI {
           // 4. Otomatik öğren — çelişki yoksa
           if (llmCheck.status !== 'celiski') {
             const result = this.kernel.learnFromLLM(llmText, { skipConflicts: true, maxSentences: 15 });
-            if (result.learned > 0) {
+            if (result.error) {
+              console.log(`⛔ ${result.error.code}: ${result.error.message}`);
+            } else if (result.learned > 0) {
               this.kernel.graph.save();
               console.log(`📚 ${result.learned} yeni bilgi hafızaya eklendi.`);
               if (result.conflicts.length > 0) {
