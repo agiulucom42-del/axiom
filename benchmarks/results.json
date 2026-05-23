@@ -1,0 +1,36 @@
+{
+  "version": "2.0.0",
+  "iterations": 2,
+  "fixtures": {
+    "small": {
+      "nodes": 6,
+      "edges": 5,
+      "learn": 30.994,
+      "ask": 0.239,
+      "verify": 0.129,
+      "reason": 0.21,
+      "compare": 0.239,
+      "dream": 0.604
+    },
+    "medium": {
+      "nodes": 19,
+      "edges": 15,
+      "learn": 29.167,
+      "ask": 0.13,
+      "verify": 0.047,
+      "reason": 0.153,
+      "compare": 0.043,
+      "dream": 1.097
+    },
+    "large": {
+      "nodes": 49,
+      "edges": 30,
+      "learn": 28.256,
+      "ask": 0.043,
+      "verify": 0.02,
+      "reason": 0.061,
+      "compare": 0.036,
+      "dream": 4.833
+    }
+  }
+}

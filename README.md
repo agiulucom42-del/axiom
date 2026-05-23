@@ -176,7 +176,11 @@ Fixture sizes live under `benchmarks/fixtures/` and are intentionally stable so 
 
 ## Release Notes
 
-For the current v2 shipping status and next-phase priorities, see [RELEASE_V2.md](./RELEASE_V2.md), [ROADMAP_V2.md](./ROADMAP_V2.md), and [RELEASE_NOTES_v2.0.0.md](./RELEASE_NOTES_v2.0.0.md).
+For the current v2 shipping status and next-phase priorities, see [RELEASE_V2.md](./RELEASE_V2.md), [ROADMAP_V2.md](./ROADMAP_V2.md), [RELEASE_NOTES_v2.0.0.md](./RELEASE_NOTES_v2.0.0.md), and [PUBLIC_RELEASE_POST.md](./PUBLIC_RELEASE_POST.md).
+
+## Benchmark Baseline
+
+Committed benchmark summaries live in [benchmarks/results.json](./benchmarks/results.json). The regression workflow compares fresh runs against that baseline on every push to `main`.
 
 ### Belge Yükleme
 
