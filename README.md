@@ -174,6 +174,10 @@ npm run bench
 
 Fixture sizes live under `benchmarks/fixtures/` and are intentionally stable so results can be compared across commits.
 
+## Release Notes
+
+For the current v2 shipping status and next-phase priorities, see [RELEASE_V2.md](./RELEASE_V2.md) and [ROADMAP_V2.md](./ROADMAP_V2.md).
+
 ### Belge Yükleme
 
 ```
