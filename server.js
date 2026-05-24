@@ -89,6 +89,75 @@ function getHealthData() {
   };
 }
 
+function getV2StatusData() {
+  const phases = [
+    {
+      id: 'v2.0',
+      title: 'v2.0 Core / Release',
+      status: 'done',
+      summary: 'Core contract, paranoid mode, MCP, benchmarks, release notes, and v2.0.0 tag are shipped.',
+      items: [
+        'Core envelope contract',
+        'paranoidMode + AXIOM_ERROR + contractVersion',
+        'MCP stdio adapter',
+        'Deterministic benchmark fixtures',
+        'Release docs + v2.0.0 tag',
+      ],
+    },
+    {
+      id: 'v2.1',
+      title: 'v2.1 Performance',
+      status: 'in_progress',
+      summary: 'Benchmark regression tracking is in place; next is interpretation, thresholds, and Rust decisioning.',
+      items: [
+        'Benchmark regression workflow',
+        'Baseline JSON committed',
+        'Performance interpretation report',
+        'Rust/JS threshold decision',
+      ],
+    },
+    {
+      id: 'v2.2',
+      title: 'v2.2 Ecosystem',
+      status: 'pending',
+      summary: 'MCP polish and external tool discovery will be expanded here.',
+      items: [
+        'Richer tool schemas',
+        'Optional output schema refinement',
+        'Agent / skill wrappers',
+      ],
+    },
+    {
+      id: 'v2.3',
+      title: 'v2.3 Product Layer',
+      status: 'pending',
+      summary: 'User-facing product surfaces and exports live here.',
+      items: [
+        'Reasoning trace dashboard',
+        'Contradiction dashboard',
+        'Import/export UX',
+        'Health/status visibility',
+      ],
+    },
+  ];
+
+  const counts = phases.reduce((acc, phase) => {
+    acc.total += 1;
+    acc[phase.status] += 1;
+    return acc;
+  }, { total: 0, done: 0, in_progress: 0, pending: 0 });
+
+  return {
+    ok: true,
+    version: require('./package.json').version,
+    contractVersion: cli.kernel.contractVersion || '1.0.0',
+    counts,
+    phases,
+    currentFocus: 'v2.1 Performance',
+    nextAction: 'Benchmark interpretation, MCP polish, and release follow-through.',
+  };
+}
+
 const HTML = `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -108,6 +177,27 @@ body{background:#0a0a0f;color:#e0e0e0;height:100vh;display:flex;flex-direction:c
 .tab:hover{color:#aaa}
 .panel{flex:1;display:none;overflow:hidden;flex-direction:column}
 .panel.active{display:flex}
+.panel.scrollable{overflow:auto}
+
+.dashboard{padding:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.metric{background:#12121d;border:1px solid #24243a;border-radius:12px;padding:14px}
+.metric .label{font-size:11px;color:#7c7c94;text-transform:uppercase;letter-spacing:.08em}
+.metric .value{font-size:26px;font-weight:700;color:#f2f2ff;margin-top:6px}
+.metric .sub{font-size:12px;color:#aaa;margin-top:4px;line-height:1.4}
+.phase-list{padding:0 16px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.phase-card{background:#11111b;border:1px solid #25253a;border-radius:14px;padding:14px}
+.phase-card.done{border-color:#1f6f49}
+.phase-card.in_progress{border-color:#956b1f}
+.phase-card.pending{border-color:#2a2a44}
+.phase-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.phase-title{font-weight:700;color:#f0f0ff}
+.phase-badge{font-size:11px;padding:3px 8px;border-radius:999px;background:#222239;color:#bdbdd6}
+.phase-card.done .phase-badge{background:#123624;color:#7dffb1}
+.phase-card.in_progress .phase-badge{background:#3a2a12;color:#ffd28a}
+.phase-card.pending .phase-badge{background:#1a1a28;color:#a6a6bf}
+.phase-summary{font-size:12px;color:#c0c0d8;line-height:1.5;margin-bottom:10px}
+.phase-items{margin:0;padding-left:18px;font-size:12px;color:#9aa0c3;line-height:1.6}
+.phase-items li{margin:4px 0}
 
 /* Chat panel */
 .chat{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:6px}
@@ -155,8 +245,9 @@ body{background:#0a0a0f;color:#e0e0e0;height:100vh;display:flex;flex-direction:c
   <span id="hdr-stats">yükleniyor...</span>
 </div>
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('chat')">💬 Sohbet</div>
-  <div class="tab" onclick="switchTab('graph')">🕸 Graf</div>
+  <div class="tab active" onclick="switchTab('chat')">Sohbet</div>
+  <div class="tab" onclick="switchTab('graph')">Graf</div>
+  <div class="tab" onclick="switchTab('status')">V2 Durumu</div>
 </div>
 
 <div class="panel active" id="chat-panel">
@@ -182,13 +273,19 @@ body{background:#0a0a0f;color:#e0e0e0;height:100vh;display:flex;flex-direction:c
   </div>
 </div>
 
+<div class="panel scrollable" id="status-panel">
+  <div class="dashboard" id="status-dashboard"></div>
+  <div class="phase-list" id="status-phases"></div>
+</div>
+
 <script>
 // ─── Tab yönetimi ─────────────────────────────────────────────────────────
 function switchTab(name) {
-  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['chat','graph'][i]===name));
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['chat','graph','status'][i]===name));
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById(name+'-panel').classList.add('active');
   if (name === 'graph') loadGraph();
+  if (name === 'status') loadStatus();
 }
 
 // ─── Chat ─────────────────────────────────────────────────────────────────
@@ -241,7 +338,45 @@ async function updateStats() {
 }
 updateStats();
 
-// ─── D3 Graf ──────────────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const r = await fetch('/v2-status');
+    const d = await r.json();
+    renderStatus(d);
+  } catch (_) {
+    const dashboard = document.getElementById('status-dashboard');
+    const phases = document.getElementById('status-phases');
+    if (dashboard) {
+      dashboard.innerHTML = '<div class="metric"><div class="label">Hata</div><div class="value">—</div><div class="sub">Durum ekranı yüklenemedi.</div></div>';
+    }
+    if (phases) phases.innerHTML = '';
+  }
+}
+
+function renderStatus(d) {
+  const dashboard = document.getElementById('status-dashboard');
+  const phases = document.getElementById('status-phases');
+  if (!dashboard || !phases) return;
+
+  dashboard.innerHTML =
+    '<div class="metric"><div class="label">S?r?m</div><div class="value">' + escapeHtml(d.version || '?') + '</div><div class="sub">Contract: ' + escapeHtml(d.contractVersion || '?') + '</div></div>' +
+    '<div class="metric"><div class="label">Fazlar</div><div class="value">' + d.counts.total + '</div><div class="sub">' + d.counts.done + ' tamam, ' + d.counts.in_progress + ' aktif, ' + d.counts.pending + ' bekliyor</div></div>' +
+    '<div class="metric"><div class="label">Odak</div><div class="value">' + escapeHtml(d.currentFocus || '?') + '</div><div class="sub">' + escapeHtml(d.nextAction || '?') + '</div></div>';
+
+  phases.innerHTML = (d.phases || []).map(phase => {
+    const badge = phase.status === 'done' ? 'Tamamland?' : phase.status === 'in_progress' ? 'Aktif' : 'Bekliyor';
+    const items = (phase.items || []).map(item => '<li>' + escapeHtml(item) + '</li>').join('');
+    return '<div class="phase-card ' + phase.status + '">' +
+      '<div class="phase-head">' +
+        '<div class="phase-title">' + escapeHtml(phase.title) + '</div>' +
+        '<div class="phase-badge">' + badge + '</div>' +
+      '</div>' +
+      '<div class="phase-summary">' + escapeHtml(phase.summary) + '</div>' +
+      '<ul class="phase-items">' + items + '</ul>' +
+    '</div>';
+  }).join('');
+}
+
 let simulation, svg, g, showLabels = true;
 let graphData = { nodes: [], links: [] };
 
@@ -404,6 +539,22 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(405); res.end(); return;
     }
     const data = getGraphData();
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-cache',
+    });
+    res.end(JSON.stringify(data));
+    return;
+  }
+
+  if (reqUrl.pathname === '/v2-status') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+      return;
+    }
+    const data = getV2StatusData();
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',

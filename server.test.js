@@ -149,6 +149,16 @@ describe('Server - API', () => {
     assert.ok(typeof j.timestamp === 'string');
   });
 
+  it('GET /v2-status durum ekranı bilgisini döndürür', async () => {
+    const r = await fetch(`${BASE}/v2-status`);
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    assert.strictEqual(j.ok, true);
+    assert.ok(Array.isArray(j.phases));
+    assert.ok(j.counts.total >= 1);
+    assert.strictEqual(typeof j.currentFocus, 'string');
+  });
+
   it('Method not allowed: POST /health', async () => {
     const r = await fetch(`${BASE}/health`, { method: 'POST' });
     assert.strictEqual(r.status, 405);
@@ -161,6 +171,7 @@ describe('Server - API', () => {
     assert.ok(html.includes('AXIOM'));
     assert.ok(html.includes('d3@7'));
     assert.ok(html.includes('forceSimulation'));
+    assert.ok(html.includes('V2 Durumu'));
   });
 
   it('bilinmeyen rota 404 döndürür', async () => {
