@@ -1,7 +1,24 @@
 const fs = require('fs');
 const path = require('path');
 
-const EVENTS = ['beforeLearn', 'afterLearn', 'beforeAsk', 'afterAsk', 'beforeDream', 'afterDream', 'beforeEmbedding', 'afterEmbedding', 'beforeIntrospect', 'afterIntrospect'];
+const EVENTS = [
+  'beforeLearn',
+  'afterLearn',
+  'beforeAsk',
+  'afterAsk',
+  'beforeDream',
+  'afterDream',
+  'beforeEmbedding',
+  'afterEmbedding',
+  'beforeIntrospect',
+  'afterIntrospect',
+  'beforePlan',
+  'afterPlan',
+  'beforeTask',
+  'afterTask',
+  'beforeAgentRun',
+  'afterAgentRun',
+];
 
 class PluginManager {
   constructor(kernel) {

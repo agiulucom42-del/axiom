@@ -224,12 +224,12 @@ describe('Server - API', () => {
     assert.strictEqual(j.ok, true);
     assert.ok(Array.isArray(j.phases));
     assert.ok(j.counts.total >= 1);
-    assert.strictEqual(j.progressPercent, 100);
-    assert.strictEqual(j.remainingPhases, 0);
+    assert.strictEqual(j.progressPercent, 91);
+    assert.strictEqual(j.remainingPhases, 1);
     assert.strictEqual(typeof j.currentFocus, 'string');
-    assert.strictEqual(j.currentFocus, 'v2.9 Evidence Polish');
+    assert.strictEqual(j.currentFocus, 'v3.0 Agent Workflow');
     assert.strictEqual(j.activeKernel, 'v2');
-    assert.strictEqual(j.testStatus, '167/167');
+    assert.strictEqual(j.testStatus, '174/174');
     assert.ok(['sqlite', 'json'].includes(j.backend));
     assert.ok(Number.isInteger(j.nodes));
     assert.ok(Number.isInteger(j.edges));

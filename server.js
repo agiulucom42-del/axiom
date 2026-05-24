@@ -3,7 +3,7 @@ const { execSync } = require('child_process');
 const CLI = require('./cli');
 const pkg = require('./package.json');
 
-const TEST_STATUS = '167/167';
+const TEST_STATUS = '174/174';
 
 const kernelOpts = {};
 if (process.env.AXIOM_MEMORY_PATH) kernelOpts.memoryPath = process.env.AXIOM_MEMORY_PATH;
@@ -238,6 +238,18 @@ function getV2StatusData() {
         'MCP schema exposure',
       ],
     },
+    {
+      id: 'v3.0',
+      title: 'v3.0 Agent Workflow',
+      status: 'in_progress',
+      summary: 'AXIOM now has a lightweight multi-step agent planner with task selection and execution reports.',
+      items: [
+        'Goal planner',
+        'Multi-step execution loop',
+        'Tool selection policy',
+        'CLI agent commands',
+      ],
+    },
   ];
 
   const counts = phases.reduce((acc, phase) => {
@@ -263,8 +275,8 @@ function getV2StatusData() {
     progressPercent,
     remainingPhases,
     phases,
-    currentFocus: 'v2.9 Evidence Polish',
-    nextAction: 'Use explanation and evidence summary fields to make verify results easier to read at a glance.',
+    currentFocus: 'v3.0 Agent Workflow',
+    nextAction: 'Use the planner to run goal-driven multi-step tasks and report each tool decision clearly.',
   };
 }
 

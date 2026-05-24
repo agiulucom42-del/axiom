@@ -12,7 +12,7 @@
 
 ## Current verification
 
-- Test suite: `167/167`
+- Test suite: `174/174`
 - Benchmark runner: `npm run bench`
 - Main branch: pushed and synchronized
 

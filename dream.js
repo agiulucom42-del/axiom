@@ -4,10 +4,17 @@ class Dream {
     this.graph = kernel.graph;
   }
 
+  _emit(event, data) {
+    if (this.kernel && this.kernel.plugins && typeof this.kernel.plugins.emit === 'function') {
+      this.kernel.plugins.emit(event, data);
+    }
+    return data;
+  }
+
   // ─── Embedding ────────────────────────────────────────────────────────────
 
   embedding(opts = {}) {
-    this.kernel.plugins.emit('beforeEmbedding', opts);
+    this._emit('beforeEmbedding', opts);
     const dims        = opts.dimensions   || 64;
     const walksPerNode = opts.walksPerNode || 10;
     const walkLength  = opts.walkLength   || 20;
@@ -62,7 +69,7 @@ class Dream {
     }
 
     const result = { dimensions: dims, nodes: nodes.length };
-    this.kernel.plugins.emit('afterEmbedding', result);
+    this._emit('afterEmbedding', result);
     return result;
   }
 
@@ -156,10 +163,10 @@ class Dream {
   // ─── Dream (Hipotez Üretimi) ──────────────────────────────────────────────
 
   dream() {
-    this.kernel.plugins.emit('beforeDream', {});
+    this._emit('beforeDream', {});
     const nodes = Object.values(this.graph._nodes);
     if (nodes.length < 2) {
-      this.kernel.plugins.emit('afterDream', { hypotheses: [] });
+      this._emit('afterDream', { hypotheses: [] });
       return [];
     }
 
@@ -170,7 +177,7 @@ class Dream {
     this._findSymmetryHypotheses(nodes, hypotheses);
     this._findContradictionHypotheses(nodes, hypotheses);
 
-    this.kernel.plugins.emit('afterDream', { hypotheses });
+    this._emit('afterDream', { hypotheses });
     return hypotheses;
   }
 

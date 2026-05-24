@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node-%3E%3D18-brightgreen)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/Tests-167%2F167-green)]()
+[![Tests](https://img.shields.io/badge/Tests-174%2F174-green)]()
 [![Dependencies](https://img.shields.io/badge/Dependencies-0-blue)]()
 [![Platform](https://img.shields.io/badge/Platform-Windows%20|%20macOS%20|%20Linux-lightgrey)]()
 
@@ -183,12 +183,14 @@ AXIOM is currently Turkish-first and rule-based.
 
 ## Agent Status
 
-AXIOM has the beginnings of an agent layer, but it is not yet a full autonomous planner.
+AXIOM has a lightweight agent layer and a basic multi-step planner, but it is not yet a full autonomous planner.
 
 - `dream` generates hypotheses and speculative links.
 - `plugin.js` provides hooks for extending behavior.
 - `llm-sor` can verify, cross-check, and optionally learn from LLM output.
-- What is still missing for a stronger agent story: task planning, goal tracking, action execution policies, and a more explicit workflow layer.
+- `plan: hedef` generates a lightweight execution plan.
+- `ajan: hedef` runs the multi-step agent loop and returns a report.
+- What is still missing for a stronger agent story: persistent goal memory, richer autonomous loops, external tool policies, and a longer-running workflow layer.
 
 ## MCP Adapter
 
@@ -249,7 +251,8 @@ For the current v2 shipping status and next-phase priorities, see [RELEASE_V2.md
 - v2.7 Manipulation Guard: done
 - v2.8 Status Dashboard Polish: done
 - v2.9 Evidence Polish: done
-- Test status: `167/167`
+- v3.0 Agent Workflow: in progress
+- Test status: `174/174`
 
 ## Benchmark Baseline
 
@@ -327,6 +330,7 @@ graph.js         — Graf veri yapısı + SQLite/JSON çift katman
 dream.js         — Hipotez motoru (node2vec embedding, benzerlik keşfi)
 llmAdapter.js    — Ollama + OpenAI wrapper ({ ok, data, error })
 plugin.js        — Event-driven plugin sistemi
+agent.js         — Goal planning + multi-step agent execution
 cli.js           — Doğal dil parser + async LLM desteği
 server.js        — HTTP API + D3.js graf arayüzü + rate limiting
 rustGraph.js     — Rust binary köprüsü (opsiyonel hızlandırıcı)

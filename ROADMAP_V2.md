@@ -51,8 +51,8 @@ Status: Completed
 - Risk-aware reasoning polish
 Status: Completed
 
-## Next Active Track (v3.0 TBD)
+## Next Active Track (v3.0 Agent Workflow)
 
-- Scope not locked yet.
-- Candidate areas: risk telemetry tuning, evidence detail polish, and product UI cleanup.
+- Scope: lightweight multi-step agent planner, tool selection policy, and execution reports.
+- Candidate areas after this phase: language packs, agent memory, and richer workflow policies.
 - Keep CLI/REST compatibility while extending core behavior.

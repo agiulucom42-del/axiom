@@ -1,5 +1,6 @@
 const Kernel = require('./kernel');
 const KernelV2 = require('./kernel.v2');
+const Agent = require('./agent');
 const Dream = require('./dream');
 const LLMAdapter = require('./llmAdapter');
 const fs = require('fs');
@@ -14,6 +15,7 @@ class CLI {
   constructor(opts = {}) {
     this.kernel = opts.kernelInstance || createKernel(opts.kernel || {});
     this.dream = new Dream(this.kernel);
+    this.agent = new Agent({ kernel: this.kernel, dream: this.dream });
     this.llm = new LLMAdapter();
   }
 
@@ -26,6 +28,12 @@ class CLI {
     }
     if (trimmed.startsWith('llm-sor:')) {
       return { command: 'llm-sor', args: raw.slice(8).trim() };
+    }
+    if (trimmed.startsWith('plan:')) {
+      return { command: 'plan', args: raw.slice(5).trim() };
+    }
+    if (trimmed.startsWith('ajan:')) {
+      return { command: 'ajan', args: raw.slice(5).trim() };
     }
     if (trimmed.startsWith('yükle:')) {
       return { command: 'yükle', args: raw.slice(6).trim() };
@@ -147,6 +155,36 @@ class CLI {
         out += `\n\u23F3 LLM yan\u0131t\u0131 i\u00e7in: ollama run ${this.llm.model} "${args}"`;
         return out;
       }
+      case 'plan': {
+        const result = this.agent.plan(args);
+        const plan = result.data;
+        const steps = (plan.steps || []).map((step, index) =>
+          `  ${index + 1}. ${step.action} -> ${step.tool} | ${step.rationale}`
+        ).join('\n');
+        return [
+          `📝 Ajan planı: ${plan.objective} (${plan.status})`,
+          `Hedef: ${plan.goal}`,
+          `Seçilen araçlar: ${(plan.selectedTools || []).join(', ') || 'yok'}`,
+          `Adımlar:\n${steps || '  -'}`,
+          `Güven: ${plan.confidence.toFixed(2)}`,
+        ].join('\n');
+      }
+      case 'ajan': {
+        const result = this.agent.run(args);
+        const data = result.data;
+        const steps = (data.steps || []).map((step, index) => {
+          const status = step.result?.ok === false ? 'hata' : 'tamam';
+          return `  ${index + 1}. ${step.action} -> ${status}${step.summary ? ` | ${step.summary}` : ''}`;
+        }).join('\n');
+        return [
+          `🤖 Ajan durumu: ${data.status}`,
+          `Hedef: ${data.goal}`,
+          `Amaç: ${data.objective}`,
+          `Araçlar: ${(data.selectedTools || []).join(', ') || 'yok'}`,
+          `Adımlar:\n${steps || '  -'}`,
+          `Sonuç: ${data.finalAnswer}`,
+        ].join('\n');
+      }
       case 'yükle': {
         try {
           const text = fs.readFileSync(args, 'utf-8');
@@ -221,6 +259,8 @@ class CLI {
           '  "tavuk mu yumurta mı"     → karşılaştırma',
           '  "durum" / "nasılsın"      → durumumu gösteririm',
           '  "rüya" / "ne düşünüyorsun"→ hipotez üretirim',
+          '  "plan: hedef"             → ajan planı üretirim',
+          '  "ajan: hedef"             → çok adımlı ajan çalıştırırım',
           '  "açık düşün"              → arka planda öğrenirim',
           '  "optimize"                → hafızayı temizlerim',
           '  "birleştir"               → çelişkili kenarları temizlerim',
@@ -255,6 +295,8 @@ class CLI {
     console.log('  "durum" / "nasılsın"   | Sistem durumu');
     console.log('  "açık düşün"           | Arka planda öğren');
     console.log('  "rüya"                 | Hipotez üret');
+    console.log('  "plan: hedef"          | Ajan planı üret');
+    console.log('  "ajan: hedef"          | Çok adımlı ajan çalıştır');
     console.log('  "optimize"             | Hafızayı temizle');
     console.log('  "llm-sor: soru"        | LLM\'ye sor (Ollama)');
     console.log('  "yükle: dosya.txt"     | .txt/.md dosyasından öğren');
@@ -333,3 +375,4 @@ if (require.main === module) {
 
 module.exports = CLI;
 module.exports.createKernel = createKernel;
+

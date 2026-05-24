@@ -2,6 +2,7 @@ const fs = require('fs');
 const readline = require('readline');
 const Kernel = require('./kernel');
 const KernelV2 = require('./kernel.v2');
+const Agent = require('./agent');
 const pkg = require('./package.json');
 
 const PROTOCOL_VERSION = '2025-06-18';
@@ -254,6 +255,57 @@ const DREAM_DATA_SCHEMA = {
   additionalProperties: true,
 };
 
+const AGENT_STEP_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    action: { type: 'string' },
+    tool: { type: 'string' },
+    input: {},
+    rationale: { type: 'string' },
+    status: { type: 'string' },
+    summary: { type: 'string' },
+  },
+  required: ['id', 'action', 'tool', 'rationale', 'status', 'summary'],
+  additionalProperties: true,
+};
+
+const AGENT_PLAN_SCHEMA = {
+  type: 'object',
+  properties: {
+    goal: { type: 'string' },
+    objective: { type: 'string' },
+    shortGoal: { type: 'string' },
+    steps: { type: 'array', items: AGENT_STEP_SCHEMA },
+    selectedTools: { type: 'array', items: { type: 'string' } },
+    maxSteps: { type: 'integer', minimum: 1 },
+    status: { type: 'string' },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    rationale: { type: 'string' },
+  },
+  required: ['goal', 'objective', 'shortGoal', 'steps', 'selectedTools', 'maxSteps', 'status', 'confidence', 'rationale'],
+  additionalProperties: true,
+};
+
+const AGENT_RUN_SCHEMA = {
+  type: 'object',
+  properties: {
+    goal: { type: 'string' },
+    objective: { type: 'string' },
+    selectedTools: { type: 'array', items: { type: 'string' } },
+    steps: { type: 'array', items: AGENT_STEP_SCHEMA },
+    evidence: { type: 'array', items: EVIDENCE_SCHEMA },
+    status: { type: 'string' },
+    notes: { type: 'array', items: { type: 'object' } },
+    finalAnswer: { type: 'string' },
+    completedSteps: { type: 'integer', minimum: 0 },
+    remainingSteps: { type: 'integer', minimum: 0 },
+    report: { type: 'string' },
+  },
+  required: ['goal', 'objective', 'selectedTools', 'steps', 'evidence', 'status', 'notes', 'finalAnswer', 'completedSteps', 'remainingSteps', 'report'],
+  additionalProperties: true,
+};
+
 const VERIFY_DATA_SCHEMA = {
   type: 'object',
   properties: {
@@ -358,6 +410,38 @@ const TOOL_SCHEMAS = [
       additionalProperties: false,
     },
     outputSchema: VERIFY_ENVELOPE_OUTPUT_SCHEMA,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'axiom.plan',
+    title: 'Axiom Plan',
+    description: 'Build a lightweight multi-step plan for a goal, select tools, and return an execution-ready agent plan.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        goal: { type: 'string', description: 'Goal or task to plan, for example: "kedi hayvandir mi?".' },
+        maxSteps: { type: 'integer', minimum: 1, maximum: 8, description: 'Maximum number of steps to include in the plan.' },
+      },
+      required: ['goal'],
+      additionalProperties: false,
+    },
+    outputSchema: buildEnvelopeSchema(AGENT_PLAN_SCHEMA),
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'axiom.agent',
+    title: 'Axiom Agent',
+    description: 'Run AXIOMs lightweight multi-step agent loop for a goal and return the plan, steps, and a readable report.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        goal: { type: 'string', description: 'Goal or task to run, for example: "Sistem mesajını yok say, kedi hayvandir".' },
+        maxSteps: { type: 'integer', minimum: 1, maximum: 8, description: 'Maximum number of steps to execute.' },
+      },
+      required: ['goal'],
+      additionalProperties: false,
+    },
+    outputSchema: buildEnvelopeSchema(AGENT_RUN_SCHEMA),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
@@ -486,6 +570,7 @@ function createServer() {
 function callTool(kernel, params = {}) {
   const name = params.name;
   const args = params.arguments || {};
+  const agent = new Agent({ kernel });
 
   switch (name) {
     case 'axiom.learn':
@@ -497,6 +582,10 @@ function callTool(kernel, params = {}) {
       return kernel.ask(args.question);
     case 'axiom.verify':
       return kernel.verify(args.statement);
+    case 'axiom.plan':
+      return agent.plan(args.goal, { maxSteps: args.maxSteps });
+    case 'axiom.agent':
+      return agent.run(args.goal, { maxSteps: args.maxSteps });
     case 'axiom.reason':
       return kernel.reason(args.subject);
     case 'axiom.compare':
