@@ -34,4 +34,33 @@ describe('KernelV2', () => {
     assert.ok(Array.isArray(res.evidence));
     assert.ok(res.evidence.length >= 1);
   });
+
+  it('verifies with multi-hop type-chain inference', () => {
+    const k = freshV2();
+    k.learn('kedi memelidir');
+    k.learn('memeli hayvandir');
+    k.learn('hayvan canlidir');
+    const res = k.verify('kedi canlidir');
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.data.status, 'dogrulandi');
+    assert.ok(Array.isArray(res.evidence));
+    if (Object.prototype.hasOwnProperty.call(res.data, 'inferred')) {
+      assert.strictEqual(res.data.inferred, true);
+      assert.ok(res.evidence.length >= 2);
+    } else {
+      assert.ok(res.evidence.length >= 1);
+    }
+  });
+
+  it('returns contradiction for negated statement when positive chain exists', () => {
+    const k = freshV2();
+    k.learn('kedi memelidir');
+    k.learn('memeli hayvandir');
+    const res = k.verify('kedi hayvan degildir');
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.data.status, 'celiski');
+    assert.strictEqual(res.data.inferred, true);
+    assert.ok(Array.isArray(res.evidence));
+    assert.ok(res.evidence.length >= 1);
+  });
 });

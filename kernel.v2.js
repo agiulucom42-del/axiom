@@ -1,4 +1,6 @@
-const Kernel = require('./kernel');
+﻿const Kernel = require('./kernel');
+
+const TYPE_RELATIONS = new Set(['tür', 'tur', 'tÃ¼r']);
 
 function nowIso() {
   return new Date().toISOString();
@@ -9,11 +11,19 @@ function normalizeText(text) {
 }
 
 function parseSimpleTurkishStatement(statement) {
-  const words = normalizeText(statement).split(/\s+/).filter(Boolean);
+  const raw = normalizeText(statement);
+  const negMatch = raw.match(/^(\S+)\s+(.+?)\s+de[gğ]il(?:dir|dır|dur|dür)?$/i);
+  if (negMatch) {
+    return { subject: negMatch[1], predicate: negMatch[2], isNegated: true };
+  }
+
+  const words = raw.split(/\s+/).filter(Boolean);
   if (words.length < 2) return null;
-  const subject = words[0];
-  const predicate = words.slice(1).join(' ');
-  return { subject, predicate };
+  return {
+    subject: words[0],
+    predicate: words.slice(1).join(' '),
+    isNegated: false,
+  };
 }
 
 class KernelV2 {
@@ -91,45 +101,98 @@ class KernelV2 {
     });
   }
 
-  _inferTypeChain(subject, target) {
-    const edges = this.kernel.graph.getEdges(subject).filter(e => e.relation === 'tür');
-    for (const e1 of edges) {
-      const level2 = this.kernel.graph.getEdges(e1.to).filter(e => e.relation === 'tür');
-      for (const e2 of level2) {
-        if (e2.to === target) {
-          return [e1, e2];
+  _isTypeRelation(relation) {
+    return TYPE_RELATIONS.has(String(relation || '').toLowerCase());
+  }
+
+  _inferTypeChain(subject, target, maxDepth = 4) {
+    const visited = new Set([subject]);
+    const queue = [{ node: subject, path: [] }];
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (current.path.length >= maxDepth) continue;
+
+      const edges = this.kernel.graph
+        .getEdges(current.node)
+        .filter(e => this._isTypeRelation(e.relation));
+
+      for (const edge of edges) {
+        if (visited.has(edge.to)) continue;
+        const nextPath = [...current.path, edge];
+
+        if (edge.to === target) {
+          return nextPath;
         }
+
+        visited.add(edge.to);
+        queue.push({ node: edge.to, path: nextPath });
       }
     }
+
     return null;
   }
 
-  verify(statement, opts = {}) {
-    const base = this.kernel.verify(statement, opts);
-    if (base.data.status !== 'bilinmiyor') return base;
+  _normalizeCopulaTail(predicate) {
+    return String(predicate || '')
+      .replace(/(?:dır|dir|dur|dür|tır|tir|tur|tür)$/i, '')
+      .trim();
+  }
 
-    const parsed = parseSimpleTurkishStatement(statement);
-    if (!parsed) return base;
-
-    const chain = this._inferTypeChain(parsed.subject, parsed.predicate.replace(/dır|dir|dur|dür|tir|tır|tur|tür$/i, '').trim());
-    if (!chain) return base;
-
-    const evidence = chain.map(e => ({
+  _toPathEvidence(chain) {
+    return chain.map(e => ({
       kind: 'path',
       text: `${e.from} --[${e.relation}]--> ${e.to}`,
       confidence: Math.max(0.4, Math.min(0.9, e.weight || 0.5)),
       nodes: [e.from, e.to],
       edges: [{ from: e.from, to: e.to, relation: e.relation }],
     }));
+  }
 
-    return this._ok('verify', {
-      status: 'dogrulandi',
-      confidence: 0.6,
-      inferred: true,
-    }, evidence, {
-      ...base.meta,
-      inferredBy: 'type-chain',
-    });
+  verify(statement, opts = {}) {
+    const base = this.kernel.verify(statement, opts);
+    if (base?.data?.status !== 'bilinmiyor') return base;
+
+    const parsed = parseSimpleTurkishStatement(statement);
+    if (!parsed) return base;
+
+    const normalizedTarget = this._normalizeCopulaTail(parsed.predicate);
+    if (!normalizedTarget) return base;
+
+    const chain = this._inferTypeChain(parsed.subject, normalizedTarget, opts.maxDepth || 4);
+    if (!chain) return base;
+
+    const evidence = this._toPathEvidence(chain);
+
+    if (parsed.isNegated) {
+      return this._ok(
+        'verify',
+        {
+          status: 'celiski',
+          confidence: 0.75,
+          inferred: true,
+        },
+        evidence,
+        {
+          ...base.meta,
+          inferredBy: 'type-chain-negation',
+        }
+      );
+    }
+
+    return this._ok(
+      'verify',
+      {
+        status: 'dogrulandi',
+        confidence: 0.6,
+        inferred: true,
+      },
+      evidence,
+      {
+        ...base.meta,
+        inferredBy: 'type-chain',
+      }
+    );
   }
 
   reason(subject, opts = {}) {
