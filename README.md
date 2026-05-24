@@ -164,6 +164,8 @@ Available tools:
 
 The adapter returns both human-readable `content` and structured MCP `structuredContent` so clients can choose the format they prefer.
 
+Set `AXIOM_KERNEL_VERSION=v2` to expose the newer `KernelV2.verify` behavior through MCP. The `axiom.verify` output schema includes v2.1 fields such as `inferred`, `reasoningPath`, `pathLength`, `confidenceSource`, and `contradictionReason`.
+
 ## Benchmarks
 
 Run deterministic local performance checks with:
@@ -183,8 +185,10 @@ For the current v2 shipping status and next-phase priorities, see [RELEASE_V2.md
 - Phase 1 Core Contract: done
 - Phase 2 MCP Polish: done
 - Phase 3 Benchmark Regression: done
-- Phase 4 Packaging/Docs: in progress
-- Test status: `150/150`
+- Phase 4 Packaging/Docs: done
+- v2.1 Verify Reasoning: done
+- v2.2 MCP Schema Reflection: done
+- Test status: `156/156`
 
 ## Benchmark Baseline
 

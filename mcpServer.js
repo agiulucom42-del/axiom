@@ -1,12 +1,19 @@
 const fs = require('fs');
 const readline = require('readline');
 const Kernel = require('./kernel');
+const KernelV2 = require('./kernel.v2');
 const pkg = require('./package.json');
 
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_NAME = 'axiom';
 const SERVER_VERSION = pkg.version;
 const VERIFY_STATUS = ['dogrulandi', 'celiski', 'bilinmiyor'];
+const CONTRADICTION_REASONS = [
+  'negated_statement_conflicts_with_known_fact',
+  'opposite_predicate_conflict',
+  'type_mismatch_with_known_types',
+  'negated_statement_conflicts_with_type_chain',
+];
 
 const ENVELOPE_OUTPUT_SCHEMA = {
   type: 'object',
@@ -47,6 +54,27 @@ const VERIFY_ENVELOPE_OUTPUT_SCHEMA = {
           properties: {
             status: { type: 'string', enum: VERIFY_STATUS },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
+            inferred: { type: 'boolean' },
+            contradictionReason: { type: 'string', enum: CONTRADICTION_REASONS },
+            confidenceSource: { type: 'string' },
+            pathLength: { type: 'integer', minimum: 1 },
+            reasoningPath: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  from: { type: 'string' },
+                  relation: { type: 'string' },
+                  to: { type: 'string' },
+                },
+                required: ['from', 'relation', 'to'],
+                additionalProperties: false,
+              },
+            },
+            knownTypes: { type: 'array', items: { type: 'string' } },
+            requestedType: { type: 'string' },
+            requestedTarget: { type: 'string' },
+            conflictTarget: { type: 'string' },
           },
           required: ['status'],
           additionalProperties: true,
@@ -63,6 +91,14 @@ function buildKernelOptsFromEnv() {
   if (process.env.AXIOM_USE_SQLITE === 'false') kernelOpts.useSQLite = false;
   if (process.env.AXIOM_PARANOID === '1') kernelOpts.paranoidMode = true;
   return kernelOpts;
+}
+
+function createKernelFromEnv() {
+  const opts = { ...buildKernelOptsFromEnv(), loadPlugins: false };
+  if (process.env.AXIOM_KERNEL_VERSION === 'v2') {
+    return new KernelV2(opts);
+  }
+  return new Kernel(opts);
 }
 
 const TOOL_SCHEMAS = [
@@ -181,7 +217,7 @@ function toToolResult(result) {
 }
 
 function createServer() {
-  const kernel = new Kernel({ ...buildKernelOptsFromEnv(), loadPlugins: false });
+  const kernel = createKernelFromEnv();
   return {
     kernel,
     handleRequest(message) {
@@ -310,6 +346,7 @@ module.exports = {
   TOOL_SCHEMAS,
   VERIFY_STATUS,
   buildKernelOptsFromEnv,
+  createKernelFromEnv,
   callTool,
   createServer,
   runStdio,

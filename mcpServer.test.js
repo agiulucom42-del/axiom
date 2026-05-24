@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const readline = require('readline');
 const { spawn } = require('child_process');
+const { TOOL_SCHEMAS } = require('./mcpServer');
 
 let proc;
 let rl;
@@ -36,6 +37,7 @@ before(() => {
       ...process.env,
       AXIOM_MEMORY_PATH: path.join(tempDir, 'memory.json'),
       AXIOM_DB_PATH: path.join(tempDir, 'memory.db'),
+      AXIOM_KERNEL_VERSION: 'v2',
     },
   });
   rl = readline.createInterface({ input: proc.stdout });
@@ -82,6 +84,15 @@ describe('MCP Server', () => {
       verifyTool.outputSchema.properties.data.anyOf[1].properties.status.enum,
       ['dogrulandi', 'celiski', 'bilinmiyor']
     );
+    assert.deepStrictEqual(
+      verifyTool.outputSchema.properties.data.anyOf[1].properties.contradictionReason.enum,
+      [
+        'negated_statement_conflicts_with_known_fact',
+        'opposite_predicate_conflict',
+        'type_mismatch_with_known_types',
+        'negated_statement_conflicts_with_type_chain',
+      ]
+    );
   });
 
   it('can learn and ask through tools/call', async () => {
@@ -100,5 +111,14 @@ describe('MCP Server', () => {
     assert.strictEqual(ask.result.structuredContent.ok, true);
     assert.ok(ask.result.structuredContent.data.answer);
     assert.ok(Array.isArray(ask.result.content));
+  });
+
+  it('exposes v2 verify fields through the schema', () => {
+    const verifyTool = TOOL_SCHEMAS.find(t => t.name === 'axiom.verify');
+    const dataSchema = verifyTool.outputSchema.properties.data.anyOf[1];
+    assert.ok(dataSchema.properties.reasoningPath);
+    assert.ok(dataSchema.properties.pathLength);
+    assert.ok(dataSchema.properties.confidenceSource);
+    assert.ok(dataSchema.properties.knownTypes);
   });
 });
