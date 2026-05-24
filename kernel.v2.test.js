@@ -83,4 +83,26 @@ describe('KernelV2', () => {
     assert.ok(Array.isArray(res.evidence));
     assert.ok(res.evidence.length >= 1);
   });
+
+  it('returns contradiction for negated known fact', () => {
+    const k = freshV2();
+    k.learn('kus ucar');
+    const res = k.verify('kus ucar degildir');
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.data.status, 'celiski');
+    assert.strictEqual(res.data.contradictionReason, 'negated_statement_conflicts_with_known_fact');
+    assert.ok(Array.isArray(res.evidence));
+    assert.ok(res.evidence.length >= 1);
+  });
+
+  it('returns contradiction for opposite predicate conflict', () => {
+    const k = freshV2();
+    k.learn('kus ucmaz');
+    const res = k.verify('kus ucar');
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.data.status, 'celiski');
+    assert.strictEqual(res.data.contradictionReason, 'opposite_predicate_conflict');
+    assert.ok(Array.isArray(res.evidence));
+    assert.ok(res.evidence.length >= 1);
+  });
 });

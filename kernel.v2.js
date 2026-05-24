@@ -1,6 +1,17 @@
 ﻿const Kernel = require('./kernel');
 
 const TYPE_RELATIONS = new Set(['tür', 'tur', 'tÃ¼r']);
+const FACT_RELATIONS = new Set(['özellik', 'ozellik', 'yapabilir']);
+const OPPOSITE_PREDICATES = new Map([
+  ['ucar', 'ucmaz'],
+  ['ucmaz', 'ucar'],
+  ['yuzer', 'yuzmez'],
+  ['yuzmez', 'yuzer'],
+  ['sicaktir', 'soguktur'],
+  ['soguktur', 'sicaktir'],
+  ['canlidir', 'cansizdir'],
+  ['cansizdir', 'canlidir'],
+]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -8,6 +19,18 @@ function nowIso() {
 
 function normalizeText(text) {
   return String(text || '').trim().toLowerCase();
+}
+
+function normalizeAscii(word) {
+  return String(word || '')
+    .toLowerCase()
+    .replace(/ı/g, 'i')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ş/g, 's')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .trim();
 }
 
 function parseSimpleTurkishStatement(statement) {
@@ -105,6 +128,16 @@ class KernelV2 {
     return TYPE_RELATIONS.has(String(relation || '').toLowerCase());
   }
 
+  _normalizeCopulaTail(predicate) {
+    return String(predicate || '')
+      .replace(/(?:dır|dir|dur|dür|tır|tir|tur|tür)$/i, '')
+      .trim();
+  }
+
+  _normalizePredicateToken(predicate) {
+    return normalizeAscii(this._normalizeCopulaTail(predicate));
+  }
+
   _inferTypeChain(subject, target, maxDepth = 4) {
     const visited = new Set([subject]);
     const queue = [{ node: subject, path: [] }];
@@ -131,12 +164,6 @@ class KernelV2 {
     }
 
     return null;
-  }
-
-  _normalizeCopulaTail(predicate) {
-    return String(predicate || '')
-      .replace(/(?:dır|dir|dur|dür|tır|tir|tur|tür)$/i, '')
-      .trim();
   }
 
   _toPathEvidence(chain) {
@@ -174,6 +201,18 @@ class KernelV2 {
       .map(edge => edge.to);
   }
 
+  _collectFactTargets(subject) {
+    return this.kernel.graph
+      .getEdges(subject)
+      .filter(edge => FACT_RELATIONS.has(String(edge.relation || '').toLowerCase()))
+      .map(edge => ({
+        relation: edge.relation,
+        target: this._normalizePredicateToken(edge.to),
+        rawTarget: edge.to,
+        weight: edge.weight,
+      }));
+  }
+
   _buildDirectTypeEvidence(subject) {
     return this.kernel.graph
       .getEdges(subject)
@@ -187,20 +226,81 @@ class KernelV2 {
       }));
   }
 
+  _buildDirectFactEvidence(subject) {
+    return this.kernel.graph
+      .getEdges(subject)
+      .filter(edge => FACT_RELATIONS.has(String(edge.relation || '').toLowerCase()))
+      .map(edge => ({
+        kind: 'direct_edge',
+        text: `${edge.from} --[${edge.relation}]--> ${edge.to}`,
+        confidence: Math.max(0.4, Math.min(0.9, edge.weight || 0.5)),
+        nodes: [edge.from, edge.to],
+        edges: [{ from: edge.from, to: edge.to, relation: edge.relation }],
+      }));
+  }
+
   verify(statement, opts = {}) {
+    const parsed = parseSimpleTurkishStatement(statement);
+    if (!parsed) return this.kernel.verify(statement, opts);
+
+    const normalizedTarget = this._normalizeCopulaTail(parsed.predicate);
+    if (!normalizedTarget) return this.kernel.verify(statement, opts);
+    const normalizedTargetToken = this._normalizePredicateToken(normalizedTarget);
+
+    const knownFacts = this._collectFactTargets(parsed.subject);
+    if (parsed.isNegated && knownFacts.length > 0) {
+      const directPositive = knownFacts.find(item => item.target === normalizedTargetToken);
+      if (directPositive) {
+        return this._ok(
+          'verify',
+          {
+            status: 'celiski',
+            confidence: Math.max(0.65, Math.min(0.9, directPositive.weight || 0.72)),
+            inferred: true,
+            contradictionReason: 'negated_statement_conflicts_with_known_fact',
+            conflictTarget: normalizedTarget,
+            confidenceSource: 'known-fact-conflict',
+          },
+          this._buildDirectFactEvidence(parsed.subject),
+          {
+            inferredBy: 'fact-negation-conflict',
+          }
+        );
+      }
+    }
+
     const base = this.kernel.verify(statement, opts);
     if (base?.data?.status !== 'bilinmiyor') return base;
 
-    const parsed = parseSimpleTurkishStatement(statement);
-    if (!parsed) return base;
-
-    const normalizedTarget = this._normalizeCopulaTail(parsed.predicate);
-    if (!normalizedTarget) return base;
+    if (knownFacts.length > 0 && !parsed.isNegated) {
+      const opposite = OPPOSITE_PREDICATES.get(normalizedTargetToken);
+      if (opposite) {
+        const oppositeFact = knownFacts.find(item => item.target === opposite);
+        if (oppositeFact) {
+          return this._ok(
+            'verify',
+            {
+              status: 'celiski',
+              confidence: Math.max(0.65, Math.min(0.9, oppositeFact.weight || 0.72)),
+              inferred: true,
+              contradictionReason: 'opposite_predicate_conflict',
+              conflictTarget: oppositeFact.rawTarget,
+              requestedTarget: normalizedTarget,
+              confidenceSource: 'opposite-predicate-map',
+            },
+            this._buildDirectFactEvidence(parsed.subject),
+            {
+              ...base.meta,
+              inferredBy: 'opposite-predicate-conflict',
+            }
+          );
+        }
+      }
+    }
 
     if (!parsed.isNegated) {
       const knownTypes = this._collectTypeTargets(parsed.subject);
       if (knownTypes.length > 0 && !knownTypes.includes(normalizedTarget)) {
-        const evidence = this._buildDirectTypeEvidence(parsed.subject);
         return this._ok(
           'verify',
           {
@@ -212,7 +312,7 @@ class KernelV2 {
             requestedType: normalizedTarget,
             confidenceSource: 'known-type-conflict',
           },
-          evidence,
+          this._buildDirectTypeEvidence(parsed.subject),
           {
             ...base.meta,
             inferredBy: 'type-conflict',
