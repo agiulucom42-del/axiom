@@ -28,7 +28,7 @@ Status: Completed (threshold decision remains optional)
 - Release notes
 - Public docs cleanup
 - Developer onboarding flow
-Status: In progress
+Status: Completed
 
 ## Next Active Track (v2.1)
 

@@ -12,7 +12,7 @@
 
 ## Current verification
 
-- Test suite: `150/150`
+- Test suite: `160/160`
 - Benchmark runner: `npm run bench`
 - Main branch: pushed and synchronized
 
@@ -21,7 +21,7 @@
 - Phase 1 (Core Contract): Completed
 - Phase 2 (MCP Polish): Completed
 - Phase 3 (Benchmark Regression): Completed
-- Phase 4 (Packaging/Docs): In progress
+- Phase 4 (Packaging/Docs): Completed
 
 ## Performance snapshot
 
@@ -33,8 +33,8 @@ npm run bench -- --quick
 
 ## Next phase priorities
 
-1. Final packaging polish: keep release docs and README fully synchronized.
-2. v2.1 scope lock: inference depth and contradiction rules in `KernelV2`.
+1. v2.1 scope lock: inference depth and contradiction rules in `KernelV2`.
+2. Expand evidence quality for multi-hop reasoning.
 3. Optional Rust-vs-JS production threshold decision with real workload data.
 
 ## Non-goals for v2 Phase 1
