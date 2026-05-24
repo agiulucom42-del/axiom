@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node-%3E%3D18-brightgreen)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/Tests-160%2F160-green)]()
+[![Tests](https://img.shields.io/badge/Tests-167%2F167-green)]()
 [![Dependencies](https://img.shields.io/badge/Dependencies-0-blue)]()
 [![Platform](https://img.shields.io/badge/Platform-Windows%20|%20macOS%20|%20Linux-lightgrey)]()
 
@@ -172,6 +172,24 @@ CLI and legacy REST endpoints keep their user-facing output stable. Code that im
 
 `paranoidMode` disables `learnFromLLM` and any external LLM-backed learning path while keeping local symbolic reasoning active.
 
+## Language Strategy
+
+AXIOM is currently Turkish-first and rule-based.
+
+- Turkish parsing, normalization, and contradiction detection are the most mature path today.
+- Other languages can be added with language-specific parsers / normalization packs.
+- Full multilingual training is not required for the core engine, but it becomes useful if we want higher-quality natural-language understanding beyond Turkish patterns.
+- Best next step: keep the symbolic core language-agnostic, then add small language modules instead of retraining the whole system.
+
+## Agent Status
+
+AXIOM has the beginnings of an agent layer, but it is not yet a full autonomous planner.
+
+- `dream` generates hypotheses and speculative links.
+- `plugin.js` provides hooks for extending behavior.
+- `llm-sor` can verify, cross-check, and optionally learn from LLM output.
+- What is still missing for a stronger agent story: task planning, goal tracking, action execution policies, and a more explicit workflow layer.
+
 ## MCP Adapter
 
 AXIOM also exposes a minimal stdio-based MCP server for tool-driven clients:
@@ -287,7 +305,7 @@ Web arayüzündeki Graf sekmesi bu endpoint'i kullanır.
 ## Testler
 
 ```bash
-# Tüm testler (160 test)
+# Tüm testler (167 test)
 npm test
 
 # Modül bazlı
