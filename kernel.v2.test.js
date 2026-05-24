@@ -67,4 +67,20 @@ describe('KernelV2', () => {
     assert.ok(Array.isArray(res.evidence));
     assert.ok(res.evidence.length >= 1);
   });
+
+  it('returns contradiction for incompatible positive type claim', () => {
+    const k = freshV2();
+    k.learn('kedi hayvandir');
+    const res = k.verify('kedi bitkidir');
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.data.status, 'celiski');
+    if (Object.prototype.hasOwnProperty.call(res.data, 'inferred')) {
+      assert.strictEqual(res.data.inferred, true);
+      assert.strictEqual(res.data.contradictionReason, 'type_mismatch_with_known_types');
+      assert.ok(Array.isArray(res.data.knownTypes));
+      assert.ok(res.data.knownTypes.includes('hayvan'));
+    }
+    assert.ok(Array.isArray(res.evidence));
+    assert.ok(res.evidence.length >= 1);
+  });
 });

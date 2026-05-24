@@ -167,6 +167,26 @@ class KernelV2 {
     }));
   }
 
+  _collectTypeTargets(subject) {
+    return this.kernel.graph
+      .getEdges(subject)
+      .filter(edge => this._isTypeRelation(edge.relation))
+      .map(edge => edge.to);
+  }
+
+  _buildDirectTypeEvidence(subject) {
+    return this.kernel.graph
+      .getEdges(subject)
+      .filter(edge => this._isTypeRelation(edge.relation))
+      .map(edge => ({
+        kind: 'direct_edge',
+        text: `${edge.from} --[${edge.relation}]--> ${edge.to}`,
+        confidence: Math.max(0.4, Math.min(0.9, edge.weight || 0.5)),
+        nodes: [edge.from, edge.to],
+        edges: [{ from: edge.from, to: edge.to, relation: edge.relation }],
+      }));
+  }
+
   verify(statement, opts = {}) {
     const base = this.kernel.verify(statement, opts);
     if (base?.data?.status !== 'bilinmiyor') return base;
@@ -176,6 +196,30 @@ class KernelV2 {
 
     const normalizedTarget = this._normalizeCopulaTail(parsed.predicate);
     if (!normalizedTarget) return base;
+
+    if (!parsed.isNegated) {
+      const knownTypes = this._collectTypeTargets(parsed.subject);
+      if (knownTypes.length > 0 && !knownTypes.includes(normalizedTarget)) {
+        const evidence = this._buildDirectTypeEvidence(parsed.subject);
+        return this._ok(
+          'verify',
+          {
+            status: 'celiski',
+            confidence: 0.72,
+            inferred: true,
+            contradictionReason: 'type_mismatch_with_known_types',
+            knownTypes,
+            requestedType: normalizedTarget,
+            confidenceSource: 'known-type-conflict',
+          },
+          evidence,
+          {
+            ...base.meta,
+            inferredBy: 'type-conflict',
+          }
+        );
+      }
+    }
 
     const chain = this._inferTypeChain(parsed.subject, normalizedTarget, opts.maxDepth || 4);
     if (!chain) return base;
