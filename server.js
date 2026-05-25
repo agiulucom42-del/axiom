@@ -3,7 +3,7 @@ const { execSync } = require('child_process');
 const CLI = require('./cli');
 const pkg = require('./package.json');
 
-const TEST_STATUS = '196/196';
+const TEST_STATUS = '197/197';
 
 const kernelOpts = {};
 if (process.env.AXIOM_MEMORY_PATH) kernelOpts.memoryPath = process.env.AXIOM_MEMORY_PATH;

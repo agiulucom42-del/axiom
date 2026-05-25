@@ -2,6 +2,12 @@
 
 This file keeps the remaining work honest after the v2 core is complete.
 
+## 0. Verified and Closed
+
+- `kernel_v2.js` encoding issue: already fixed in the current tree
+- `kernel.js` normalization path: already routed through `nlp/lang-tr.js`
+- `llm-memory-plugin.js` adapter path: already resolves to the repo-root `llmAdapter.js`
+
 ## 1. Stronger Agent Loop
 
 - improve tool selection policy
