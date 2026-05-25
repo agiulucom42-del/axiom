@@ -133,6 +133,7 @@ module.exports = {
   DEFAULT_RATE_LIMIT_WINDOW,
   clearExpiredRateLimitEntries,
   checkRateLimit,
+  extractApiKey,
   readJsonBody,
   rateLimitMap,
   requireApiKey,

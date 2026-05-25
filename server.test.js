@@ -5,12 +5,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const PORT = 34567;
-const BASE = `http://localhost:${PORT}`;
+let PORT;
+let BASE;
 
 function request(url, options = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
+    let socket = null;
     const req = http.request({
       method: options.method || 'GET',
       hostname: u.hostname,
@@ -23,15 +24,23 @@ function request(url, options = {}) {
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
         const body = Buffer.concat(chunks);
-        resolve({
+        const payload = {
           status: res.statusCode,
           headers: { get: (name) => res.headers[String(name).toLowerCase()] ?? null },
           json: async () => JSON.parse(body.toString('utf8') || '{}'),
           text: async () => body.toString('utf8'),
-        });
+        };
+        socket?.destroy();
+        res.destroy();
+        req.destroy();
+        resolve(payload);
       });
     });
     req.on('error', reject);
+    req.on('socket', (s) => {
+      socket = s;
+      s.unref?.();
+    });
     if (options.body !== undefined && options.body !== null) {
       req.write(options.body);
     }
@@ -41,23 +50,35 @@ function request(url, options = {}) {
 
 let server;
 let tempDir;
-before(() => {
+before(async () => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'axiom-server-'));
-  process.env.PORT = String(PORT);
   process.env.AXIOM_MEMORY_PATH = path.join(tempDir, 'memory.json');
   process.env.AXIOM_DB_PATH = path.join(tempDir, 'memory.db');
   process.env.AXIOM_KERNEL_VERSION = 'v2';
   process.env.AXIOM_DISABLE_AUTO_LISTEN = '1';
   server = require('./server');
-  server.startServer(PORT);
+  server.keepAliveTimeout = 1;
+  server.headersTimeout = 2_000;
+  server.requestTimeout = 2_000;
+  server.maxRequestsPerSocket = 1;
+  await new Promise((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
+    server.startServer(0);
+  });
   server.unref();
+  const addr = server.address();
+  PORT = addr.port;
+  BASE = `http://127.0.0.1:${PORT}`;
 });
 
-after(async () => {
+after(() => {
   server.closeAllConnections?.();
   server.closeIdleConnections?.();
   server.closeAxiom?.();
-  await new Promise((resolve) => server.close(resolve));
+  server.close(() => {});
+  server.closeAllConnections?.();
+  server.closeIdleConnections?.();
   delete process.env.AXIOM_MEMORY_PATH;
   delete process.env.AXIOM_DB_PATH;
   delete process.env.AXIOM_KERNEL_VERSION;
@@ -71,7 +92,7 @@ describe('Server - API', () => {
     assert.strictEqual(r.status, 200);
     const j = await r.json();
     assert.ok('result' in j);
-    assert.strictEqual(r.headers.get('access-control-allow-origin'), '*');
+    assert.notStrictEqual(r.headers.get('access-control-allow-origin'), '*');
   });
 
   it('GET /api boÅŸ q hata dÃ¶ndÃ¼rÃ¼r', async () => {
@@ -85,7 +106,7 @@ describe('Server - API', () => {
     const j = await r.json();
     assert.ok('status' in j);
     assert.ok(!('ok' in j));
-    assert.strictEqual(r.headers.get('access-control-allow-origin'), '*');
+    assert.notStrictEqual(r.headers.get('access-control-allow-origin'), '*');
   });
 
   it('GET /dogrula boÅŸ statement hata dÃ¶ndÃ¼rÃ¼r', async () => {
@@ -104,8 +125,35 @@ describe('Server - API', () => {
     assert.ok(Array.isArray(j.evidence));
     assert.strictEqual(j.error, null);
     assert.ok(j.meta.contractVersion);
-    assert.strictEqual(r.headers.get('access-control-allow-origin'), '*');
+    assert.notStrictEqual(r.headers.get('access-control-allow-origin'), '*');
     assert.strictEqual(r.headers.get('cache-control'), 'no-cache');
+  });
+
+  it('OPTIONS preflight returns safe CORS headers', async () => {
+    const r = await request(`${BASE}/v2/verify`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'http://localhost:34567',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'Content-Type, Authorization',
+      },
+    });
+    assert.strictEqual(r.status, 204);
+    assert.strictEqual(r.headers.get('access-control-allow-origin'), 'http://localhost:34567');
+    assert.ok(r.headers.get('access-control-allow-methods').includes('POST'));
+    assert.ok(r.headers.get('access-control-allow-headers').includes('Authorization'));
+  });
+
+  it('disallowed origin does not receive wildcard CORS', async () => {
+    const r = await request(`${BASE}/v2/verify`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://evil.example',
+        'Access-Control-Request-Method': 'POST',
+      },
+    });
+    assert.strictEqual(r.status, 204);
+    assert.strictEqual(r.headers.get('access-control-allow-origin'), null);
   });
 
   it('POST /v2/verify keeps KernelV2 contradiction details', async () => {
@@ -199,15 +247,25 @@ describe('Server - API', () => {
   });
 
   it('POST /llm-sor soru gÃ¶nderir', async () => {
-    const r = await request(`${BASE}/llm-sor`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: 'kedi nedir' }),
+    const LLMAdapter = require('./llmAdapter');
+    const originalAsk = LLMAdapter.prototype.ask;
+    LLMAdapter.prototype.ask = async () => ({
+      ok: true,
+      data: { text: 'kedi bir memelidir', model: 'mock', tokens: 0 },
     });
-    assert.strictEqual(r.status, 200);
-    const j = await r.json();
-    assert.ok('ok' in j);
-    assert.ok('llmAnswer' in j || 'error' in j);
+    try {
+      const r = await request(`${BASE}/llm-sor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: 'kedi nedir' }),
+      });
+      assert.strictEqual(r.status, 200);
+      const j = await r.json();
+      assert.ok('ok' in j);
+      assert.strictEqual(j.llmAnswer, 'kedi bir memelidir');
+    } finally {
+      LLMAdapter.prototype.ask = originalAsk;
+    }
   });
 
   it('POST /llm-sor boÅŸ question hata dÃ¶ndÃ¼rÃ¼r', async () => {
@@ -234,7 +292,7 @@ describe('Server - API', () => {
     const j = await r.json();
     assert.ok(Array.isArray(j.nodes));
     assert.ok(Array.isArray(j.links));
-    assert.strictEqual(r.headers.get('access-control-allow-origin'), '*');
+    assert.notStrictEqual(r.headers.get('access-control-allow-origin'), '*');
     assert.strictEqual(r.headers.get('cache-control'), 'no-cache');
   });
 
