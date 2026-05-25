@@ -199,6 +199,7 @@ AXIOM has a lightweight agent layer, persistent goal memory, a retry-aware LLM a
 - `plan: hedef` generates a lightweight execution plan.
 - `ajan: hedef` runs the multi-step agent loop and returns a report.
 - The planner now keeps a small local memory file, remembers previous goals, avoids repeating recent failures, and biases tool selection with a simple policy layer.
+- It also detects stalled progress and can switch to hypothesis mode when repeated steps stop producing new signal.
 - What is still missing for a stronger agent story: richer autonomous loops, external tool policies, and a longer-running workflow layer.
 
 ## MCP Adapter
@@ -261,7 +262,7 @@ For the current v2 shipping status and next-phase priorities, see [RELEASE_V2.md
 - v2.8 Status Dashboard Polish: done
 - v2.9 Evidence Polish: done
 - v3.0 Agent Workflow: in progress
-- Test status: `195/195`
+- Test status: `196/196`
 
 ## Current Remaining Work
 

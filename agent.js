@@ -39,6 +39,13 @@ function stripQuestionMarks(text) {
   return String(text || '').replace(/[؟?]+/g, '').trim();
 }
 
+function normalizeSummaryText(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function normalizeMemoryPath(opts = {}, kernel) {
   if (Object.prototype.hasOwnProperty.call(opts || {}, 'memoryPath')) {
     return opts.memoryPath;
@@ -105,6 +112,15 @@ class Agent {
       if (item && Array.isArray(item.evidence)) evidence.push(...item.evidence);
     }
     return evidence.filter(Boolean);
+  }
+
+  _isStalledProgress(previousSummary, currentSummary) {
+    const prev = normalizeSummaryText(previousSummary);
+    const curr = normalizeSummaryText(currentSummary);
+    if (!curr) return true;
+    if (curr === 'bilmiyorum' || curr === 'bilinmiyor' || curr === 'unknown') return true;
+    if (!prev) return false;
+    return curr === prev;
   }
 
   _loadMemory() {
@@ -290,6 +306,7 @@ class Agent {
       report: state.report || '',
       resumed: Boolean(state.resumed),
       resumedFrom: state.resumedFrom || null,
+      progress: state.progress ? cloneValue(state.progress) : { stalledCount: 0, lastSummary: '' },
       startedAt: state.startedAt || nowIso(),
       updatedAt: nowIso(),
     };
@@ -598,6 +615,7 @@ class Agent {
       resumed: true,
       resumedFrom: resumeCandidate.id,
       startedAt: resumeCandidate.startedAt || nowIso(),
+      progress: resumeCandidate.progress ? cloneValue(resumeCandidate.progress) : { stalledCount: 0, lastSummary: '' },
     } : {
       goal: freshPlan.goal,
       objective: freshPlan.objective,
@@ -611,6 +629,7 @@ class Agent {
       resumed: false,
       resumedFrom: null,
       startedAt: nowIso(),
+      progress: { stalledCount: 0, lastSummary: '' },
     };
     state.completedSteps = state.steps.length;
     state.remainingSteps = Array.isArray(state.queuedSteps) ? state.queuedSteps.length : 0;
@@ -630,8 +649,28 @@ class Agent {
       });
 
       const summary = this._extractAgentSummary(report.result);
+      const previousSummary = state.progress?.lastSummary || '';
+      const stalled = this._isStalledProgress(previousSummary, summary.text);
+      state.progress = {
+        stalledCount: stalled ? (state.progress?.stalledCount || 0) + 1 : 0,
+        lastSummary: normalizeSummaryText(summary.text),
+      };
+
       const followUp = this._chooseFollowUp(step, summary, state);
-      if (followUp && state.steps.length < activePlan.maxSteps) {
+      const shouldForceDream =
+        state.progress.stalledCount >= 2 &&
+        state.steps.length < activePlan.maxSteps &&
+        !queued.some(s => s.tool === 'dream');
+
+      if (shouldForceDream) {
+        queued.unshift({
+          id: `dream-${state.steps.length + 1}`,
+          action: 'dream',
+          tool: 'dream',
+          input: {},
+          rationale: 'Progress stalled; switching to hypothesis mode.',
+        });
+      } else if (followUp && state.steps.length < activePlan.maxSteps) {
         const nextSignature = this._stepSignature(followUp, state);
         if (this._findRecentFailure(nextSignature)) {
           const fallback = followUp.action === 'dream' ? null : { action: 'dream', tool: 'dream', input: {}, rationale: 'Önceki aynı hata tekrarlandığı için güvenli fallback seçildi.' };
@@ -694,6 +733,7 @@ class Agent {
       `Amaç: ${state.objective}`,
       `Durum: ${state.status}`,
       `Adım sayısı: ${state.completedSteps}`,
+      `İlerleme: ${(state.progress && typeof state.progress.stalledCount === 'number') ? `stalled=${state.progress.stalledCount}` : 'unknown'}`,
       ...stepLines,
       `Sonuç: ${state.finalAnswer}`,
     ].join('\n');

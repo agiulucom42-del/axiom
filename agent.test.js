@@ -164,4 +164,56 @@ describe('Agent', () => {
     assert.ok(plan.data.policy.failureHits.length >= 1);
     assert.ok(plan.data.rationale.includes('Amaç sinyali açık') || plan.data.rationale.includes('Default'));
   });
+  it('switches to dream when progress stalls across successful steps', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'axiom-agent-stall-'));
+    const memoryPath = path.join(tmpDir, 'agent.memory.json');
+
+    const fakeKernel = {
+      plugins: { emit: () => ({}) },
+      _ok(type, data = null, evidence = [], meta = {}) {
+        return {
+          ok: true,
+          type,
+          data,
+          evidence: Array.isArray(evidence) ? evidence : [],
+          error: null,
+          meta,
+        };
+      },
+      ask() {
+        return this._ok('ask', { answer: 'Aynı cevap', subject: 'axiom', unknown: false, alternatives: 0 }, []);
+      },
+      reason() {
+        return this._ok('reason', { subject: 'axiom', answer: 'Aynı cevap', forward: [], backward: [], cycles: [] }, []);
+      },
+      verify() {
+        return this._ok('verify', { status: 'bilinmiyor', confidence: 0.5, evidence: [] }, []);
+      },
+    };
+
+    const agent = new Agent({ kernel: fakeKernel, memoryPath });
+    agent.dream = {
+      dream() {
+        return {
+          ok: true,
+          type: 'dream',
+          data: {
+            hypotheses: [{ node: 'axiom', type: 'hypothesis', confidence: 0.6 }],
+            learned: [],
+            cycle: 1,
+          },
+          evidence: [],
+          error: null,
+          meta: {},
+        };
+      },
+    };
+
+    const runResult = agent.run('neden ayni cevap tekrar ediyor?');
+    assert.strictEqual(runResult.ok, true);
+    assert.strictEqual(runResult.type, 'agent');
+    assert.ok(runResult.data.steps.some(step => step.tool === 'dream'));
+    assert.ok(runResult.data.report.includes('İlerleme:'));
+    assert.ok(typeof runResult.data.progress.stalledCount === 'number');
+  });
 });
