@@ -176,12 +176,12 @@ CLI and legacy REST endpoints keep their user-facing output stable. Code that im
 
 AXIOM is currently Turkish-first and rule-based.
 
-- Turkish parsing, normalization, and contradiction detection are the most mature path today.
-- English now has a basic language pack as a proof of the modular interface.
-- German now has a basic language pack skeleton, showing the same interface can be extended.
-- Other languages can be added with language-specific parsers / normalization packs.
-- Full multilingual training is not required for the core engine, but it becomes useful if we want higher-quality natural-language understanding beyond Turkish patterns.
-- Best next step: keep the symbolic core language-agnostic, then add small language modules instead of retraining the whole system.
+- The core engine stays language-agnostic.
+- Turkish parsing, normalization, and contradiction detection are the strongest and most mature path today.
+- English, German, and Arabic are now small language-pack examples that prove the interface works.
+- New languages should be added as lightweight parsing / normalization packs, not by retraining the symbolic core.
+- Full multilingual training is not required for the core engine, but it can be layered later if we want deeper natural-language coverage.
+- Best next step: keep the symbolic core stable, then add small language modules where they create real user value.
 
 ## Agent Status
 
