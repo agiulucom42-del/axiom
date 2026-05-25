@@ -519,6 +519,45 @@ class Agent {
     };
   }
 
+  _buildRunRecommendations(state) {
+    const recommendations = [];
+    const lastStep = state.steps[state.steps.length - 1] || null;
+    const blocked = state.status === 'blocked' || lastStep?.status === 'blocked';
+    const stalledCount = Number(state.progress?.stalledCount || 0);
+
+    if (blocked) {
+      recommendations.push('Sadece izinli tool setiyle devam et.');
+    }
+    if (stalledCount >= 2) {
+      recommendations.push('Aynı sonuç tekrar ediyorsa hedefi yeniden ifade et veya daha fazla bağlam ekle.');
+    }
+    if (state.objective === 'verify') {
+      recommendations.push('Doğrulama için önce ask ile bağlamı netleştir, sonra verify çalıştır.');
+    }
+    if (state.objective === 'reason') {
+      recommendations.push('Sebep zinciri zayıfsa ilgili ara düğümleri öğren veya örnek kanıt ekle.');
+    }
+    if (!recommendations.length) {
+      recommendations.push('Mevcut akış yeterli; hedefi küçük parçalara bölerek devam edebilirsin.');
+    }
+
+    const toolHealth = Object.entries(this.memory?.stats?.tools || {})
+      .map(([tool, stat]) => ({
+        tool,
+        success: Number(stat.success || 0),
+        blocked: Number(stat.blocked || 0),
+        error: Number(stat.error || 0),
+      }))
+      .filter(item => item.success || item.blocked || item.error)
+      .sort((a, b) => (b.error + b.blocked) - (a.error + a.blocked))
+      .slice(0, 3);
+
+    return {
+      items: recommendations,
+      toolHealth,
+    };
+  }
+
   _chooseFollowUp(step, summary, state) {
     if (step.action === 'verify') {
       if (summary.status === 'bilinmiyor') return { action: 'dream', tool: 'dream', input: {} };
@@ -771,12 +810,21 @@ class Agent {
       const summary = step.summary ? ` - ${step.summary}` : '';
       return `${index + 1}. ${step.action} (${step.tool})${summary}`;
     });
+    const recommendations = this._buildRunRecommendations(state);
+    const recommendationLines = recommendations.items.map(item => `- ${item}`);
+    const toolHealthLines = recommendations.toolHealth.length
+      ? recommendations.toolHealth.map(item => `- ${item.tool}: success=${item.success}, blocked=${item.blocked}, error=${item.error}`)
+      : ['- henüz kullanım verisi yok'];
     return [
       `Hedef: ${state.goal}`,
       `Amaç: ${state.objective}`,
       `Durum: ${state.status}`,
       `Adım sayısı: ${state.completedSteps}`,
       `İlerleme: ${(state.progress && typeof state.progress.stalledCount === 'number') ? `stalled=${state.progress.stalledCount}` : 'unknown'}`,
+      'Öneri:',
+      ...recommendationLines,
+      'Araç sağlığı:',
+      ...toolHealthLines,
       ...stepLines,
       `Sonuç: ${state.finalAnswer}`,
     ].join('\n');

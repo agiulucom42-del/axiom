@@ -209,6 +209,8 @@ describe('Agent', () => {
     assert.strictEqual(runResult.data.status, 'blocked');
     assert.ok(runResult.data.steps.some(step => step.status === 'blocked'));
     assert.ok(runResult.data.report.includes('Durum: blocked'));
+    assert.ok(runResult.data.report.includes('Öneri:'));
+    assert.ok(runResult.data.report.includes('Araç sağlığı:'));
   });
 
   it('switches to dream when progress stalls across successful steps', () => {
