@@ -57,6 +57,7 @@ function defaultMemoryState() {
     plans: [],
     runs: [],
     goals: [],
+    failures: [],
     stats: {
       tools: {},
       objectives: {},
@@ -125,6 +126,7 @@ class Agent {
       plans: Array.isArray(memory.plans) ? memory.plans : [],
       runs: Array.isArray(memory.runs) ? memory.runs : [],
       goals: Array.isArray(memory.goals) ? memory.goals : [],
+      failures: Array.isArray(memory.failures) ? memory.failures : [],
       stats: {
         tools: memory.stats && typeof memory.stats.tools === 'object' && memory.stats.tools ? memory.stats.tools : {},
         objectives: memory.stats && typeof memory.stats.objectives === 'object' && memory.stats.objectives ? memory.stats.objectives : {},
@@ -193,6 +195,7 @@ class Agent {
     this.memory.plans = this.memory.plans.slice(-MEMORY_LIMITS.plans);
     this.memory.runs = this.memory.runs.slice(-MEMORY_LIMITS.runs);
     this.memory.goals = this.memory.goals.slice(-MEMORY_LIMITS.goals);
+    this.memory.failures = this.memory.failures.slice(-MEMORY_LIMITS.goals);
   }
 
   _recordGoal(goal, objective, status, meta = {}) {
@@ -207,6 +210,39 @@ class Agent {
     };
     this.memory.goals.push(entry);
     this._pruneMemory();
+  }
+
+  _stepSignature(step = {}, state = {}) {
+    const tool = String(step.tool || '').trim();
+    const action = String(step.action || '').trim();
+    const input = normalizeGoal(step.input || state.goal || '');
+    return `${tool}|${action}|${input}`;
+  }
+
+  _findRecentFailure(signature) {
+    const key = String(signature || '');
+    for (let i = this.memory.failures.length - 1; i >= 0; i -= 1) {
+      const entry = this.memory.failures[i];
+      if (entry && entry.signature === key) return entry;
+    }
+    return null;
+  }
+
+  _recordFailure(step, state, result, attempt = 1) {
+    const signature = this._stepSignature(step, state);
+    const entry = {
+      signature,
+      tool: step.tool,
+      action: step.action,
+      goal: normalizeGoal(state.goal),
+      error: result?.error?.message || result?.error?.code || result?.error || 'unknown',
+      attempt,
+      updatedAt: nowIso(),
+    };
+    this.memory.failures.push(entry);
+    this._pruneMemory();
+    this._saveMemory();
+    return entry;
   }
 
   _rememberPlan(plan, meta = {}) {
@@ -283,6 +319,7 @@ class Agent {
       investigate: ['ask', 'verify', 'reason', 'dream'],
     };
     const signals = [];
+    const failureHits = [];
     if (/(ignore|yok say|sistem mesaj|system prompt|developer message|gizli komut)/i.test(text)) {
       signals.push('manipulation');
     }
@@ -311,6 +348,15 @@ class Agent {
       signals.push('known-goal');
       scores.set('ask', (scores.get('ask') || 0) + 6);
     }
+    for (const tool of base) {
+      const sig = `${tool}|${objective}|${text}`;
+      const failure = this._findRecentFailure(sig);
+      if (failure) {
+        failureHits.push({ tool, error: failure.error, attempt: failure.attempt });
+        signals.push('recent-failure');
+        scores.set(tool, (scores.get(tool) || 0) - 20);
+      }
+    }
     const ordered = [...scores.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([tool]) => tool);
@@ -322,8 +368,11 @@ class Agent {
       selectedTools: ordered.slice(0, 4),
       baseTools: base,
       signals,
+      failureHits,
       rationale: signals.includes('manipulation')
         ? 'Risk-aware policy boosted verify and reason first.'
+        : signals.includes('recent-failure')
+          ? 'Recent failure history reduced repeated tool choices.'
         : goalRecord
           ? 'Known goal found in memory, so the planner keeps a slightly stronger ask/verify mix.'
           : 'Default tool policy selected by objective.',
@@ -455,6 +504,30 @@ class Agent {
     return null;
   }
 
+  _isRepeatFailure(step, state) {
+    const signature = this._stepSignature(step, state);
+    return Boolean(this._findRecentFailure(signature));
+  }
+
+  _isRetryableStepReport(report = {}) {
+    const result = report.result || {};
+    const rawError = String(result?.error?.message || result?.error?.code || result?.error || report.summary || '').toLowerCase();
+    return /abort|timeout|fetch|network|econn|enotfound|etimedout|eai_again|503|502|504|429|temporarily|closed|ollama/.test(rawError);
+  }
+
+  _executeStepWithRetry(step, state, opts = {}) {
+    const maxRetries = Number.isInteger(opts.stepRetries) ? Math.max(0, opts.stepRetries) : 2;
+    let lastReport = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const report = this._executeStep({ ...step, attempt: attempt + 1 }, state, opts);
+      lastReport = report;
+      if (report.status !== 'error') return report;
+      this._recordFailure(step, state, report.result, attempt + 1);
+      if (!this._isRetryableStepReport(report) || attempt >= maxRetries) break;
+    }
+    return lastReport;
+  }
+
   _executeStep(step, state, opts = {}) {
     this._emit('beforeTask', { step, state, opts });
     let result;
@@ -547,7 +620,7 @@ class Agent {
     this._rememberRun(state);
     while (queued.length > 0 && state.steps.length < activePlan.maxSteps) {
       const step = queued.shift();
-      const report = this._executeStep(step, state, opts);
+      const report = this._executeStepWithRetry(step, state, opts);
       state.steps.push(report);
       state.evidence.push(...this._collectEvidence([report.result]));
       this._updateToolStats(report.tool, report.status);
@@ -559,13 +632,27 @@ class Agent {
       const summary = this._extractAgentSummary(report.result);
       const followUp = this._chooseFollowUp(step, summary, state);
       if (followUp && state.steps.length < activePlan.maxSteps) {
-        queued.unshift({
-          id: `${followUp.action}-${state.steps.length + 1}`,
-          action: followUp.action,
-          tool: followUp.tool,
-          input: followUp.input,
-          rationale: `Önceki adımın sonucu ek adım gerektirdi.`,
-        });
+        const nextSignature = this._stepSignature(followUp, state);
+        if (this._findRecentFailure(nextSignature)) {
+          const fallback = followUp.action === 'dream' ? null : { action: 'dream', tool: 'dream', input: {}, rationale: 'Önceki aynı hata tekrarlandığı için güvenli fallback seçildi.' };
+          if (fallback && !this._findRecentFailure(this._stepSignature(fallback, state))) {
+            queued.unshift({
+              id: `${fallback.action}-${state.steps.length + 1}`,
+              action: fallback.action,
+              tool: fallback.tool,
+              input: fallback.input,
+              rationale: fallback.rationale,
+            });
+          }
+        } else {
+          queued.unshift({
+            id: `${followUp.action}-${state.steps.length + 1}`,
+            action: followUp.action,
+            tool: followUp.tool,
+            input: followUp.input,
+            rationale: 'Önceki adımın sonucu ek adım gerektirdi.',
+          });
+        }
       }
       state.queuedSteps = [...queued];
       state.completedSteps = state.steps.length;

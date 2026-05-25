@@ -40,6 +40,58 @@ describe('LLMAdapter', () => {
     assert(a.model === 'llama3.2:1b');
     assert(a.endpoint === 'http://192.168.1.100:11434');
   });
+
+  it('retries transient ollama failures and succeeds on a later attempt', async () => {
+    let calls = 0;
+    const a = new LLMAdapter({
+      provider: 'ollama',
+      maxRetries: 2,
+      retryDelayMs: 0,
+      failureCooldownMs: 1000,
+      sleepImpl: async () => {},
+      fetchImpl: async () => {
+        calls += 1;
+        if (calls < 3) {
+          throw new Error('fetch failed');
+        }
+        return {
+          ok: true,
+          json: async () => ({ response: 'oldu', model: 'llama', eval_count: 7 }),
+        };
+      },
+    });
+    const res = await a.ask('test');
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.data.text, 'oldu');
+    assert.strictEqual(calls, 3);
+  });
+
+  it('caches repeated failures and avoids repeating the same broken call immediately', async () => {
+    let calls = 0;
+    const a = new LLMAdapter({
+      provider: 'openai',
+      apiKey: 'key',
+      maxRetries: 1,
+      retryDelayMs: 0,
+      failureCooldownMs: 10_000,
+      sleepImpl: async () => {},
+      fetchImpl: async () => {
+        calls += 1;
+        return {
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          json: async () => ({}),
+        };
+      },
+    });
+    const first = await a.ask('same prompt');
+    const second = await a.ask('same prompt');
+    assert.strictEqual(first.ok, false);
+    assert.strictEqual(second.ok, false);
+    assert.strictEqual(calls, 2);
+    assert.strictEqual(second.cached, true);
+  });
 });
 
 describe('kernel.verify()', () => {

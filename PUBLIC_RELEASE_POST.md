@@ -136,7 +136,7 @@ mcpServer.js  — MCP stdio for AI tool integration
 
 ## Status
 
-- 175/175 tests passing
+- 178/178 tests passing
 - v2.8 Status Dashboard Polish shipped
 - v2.9 Evidence Polish shipped
 - Zero external runtime dependencies

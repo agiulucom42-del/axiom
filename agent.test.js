@@ -132,4 +132,36 @@ describe('Agent', () => {
     assert.ok(nextPlan.data.memory.previousRuns >= 1);
     assert.ok(nextPlan.data.policy.signals.includes('known-goal'));
   });
+
+  it('avoids repeating a recently failed tool signature', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'axiom-agent-fail-'));
+    const memoryPath = path.join(tmpDir, 'agent.memory.json');
+    const stamp = new Date().toISOString();
+    const failureSignature = 'verify|verify|kedi hayvandir mi?';
+    fs.writeFileSync(memoryPath, JSON.stringify({
+      version: 1,
+      updatedAt: stamp,
+      plans: [],
+      runs: [],
+      goals: [],
+      failures: [{
+        signature: failureSignature,
+        tool: 'verify',
+        action: 'verify',
+        goal: 'kedi hayvandir mi?',
+        error: 'Ollama kapalı',
+        attempt: 1,
+        updatedAt: stamp,
+      }],
+      stats: { tools: {}, objectives: {} },
+    }, null, 2));
+
+    const agent = freshAgent(memoryPath);
+    const plan = agent.plan('kedi hayvandir mi?');
+    assert.strictEqual(plan.ok, true);
+    assert.ok(plan.data.policy.signals.includes('recent-failure'));
+    assert.ok(Array.isArray(plan.data.policy.failureHits));
+    assert.ok(plan.data.policy.failureHits.length >= 1);
+    assert.ok(plan.data.rationale.includes('Amaç sinyali açık') || plan.data.rationale.includes('Default'));
+  });
 });
