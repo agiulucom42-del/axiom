@@ -3,7 +3,7 @@ const { execSync } = require('child_process');
 const CLI = require('./cli');
 const pkg = require('./package.json');
 
-const TEST_STATUS = '174/174';
+const TEST_STATUS = '175/175';
 
 const kernelOpts = {};
 if (process.env.AXIOM_MEMORY_PATH) kernelOpts.memoryPath = process.env.AXIOM_MEMORY_PATH;
@@ -242,9 +242,10 @@ function getV2StatusData() {
       id: 'v3.0',
       title: 'v3.0 Agent Workflow',
       status: 'in_progress',
-      summary: 'AXIOM now has a lightweight multi-step agent planner with task selection and execution reports.',
+      summary: 'AXIOM now has a lightweight multi-step agent planner with persistent goal memory, tool selection policy, and execution reports.',
       items: [
         'Goal planner',
+        'Persistent goal memory',
         'Multi-step execution loop',
         'Tool selection policy',
         'CLI agent commands',
@@ -276,7 +277,7 @@ function getV2StatusData() {
     remainingPhases,
     phases,
     currentFocus: 'v3.0 Agent Workflow',
-    nextAction: 'Use the planner to run goal-driven multi-step tasks and report each tool decision clearly.',
+    nextAction: 'Use the planner to run goal-driven multi-step tasks, persist the goal history, and report each tool decision clearly.',
   };
 }
 

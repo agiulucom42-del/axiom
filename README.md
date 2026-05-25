@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node-%3E%3D18-brightgreen)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/Tests-174%2F174-green)]()
+[![Tests](https://img.shields.io/badge/Tests-175%2F175-green)]()
 [![Dependencies](https://img.shields.io/badge/Dependencies-0-blue)]()
 [![Platform](https://img.shields.io/badge/Platform-Windows%20|%20macOS%20|%20Linux-lightgrey)]()
 
@@ -183,14 +183,15 @@ AXIOM is currently Turkish-first and rule-based.
 
 ## Agent Status
 
-AXIOM has a lightweight agent layer and a basic multi-step planner, but it is not yet a full autonomous planner.
+AXIOM has a lightweight agent layer, persistent goal memory, and a basic multi-step planner, but it is not yet a full autonomous planner.
 
 - `dream` generates hypotheses and speculative links.
 - `plugin.js` provides hooks for extending behavior.
 - `llm-sor` can verify, cross-check, and optionally learn from LLM output.
 - `plan: hedef` generates a lightweight execution plan.
 - `ajan: hedef` runs the multi-step agent loop and returns a report.
-- What is still missing for a stronger agent story: persistent goal memory, richer autonomous loops, external tool policies, and a longer-running workflow layer.
+- The planner now keeps a small local memory file, remembers previous goals, and biases tool selection with a simple policy layer.
+- What is still missing for a stronger agent story: richer autonomous loops, external tool policies, and a longer-running workflow layer.
 
 ## MCP Adapter
 
@@ -252,7 +253,7 @@ For the current v2 shipping status and next-phase priorities, see [RELEASE_V2.md
 - v2.8 Status Dashboard Polish: done
 - v2.9 Evidence Polish: done
 - v3.0 Agent Workflow: in progress
-- Test status: `174/174`
+- Test status: `175/175`
 
 ## Benchmark Baseline
 

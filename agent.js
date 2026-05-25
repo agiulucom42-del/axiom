@@ -1,6 +1,23 @@
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const Dream = require('./dream');
 
 const DEFAULT_MAX_STEPS = 4;
+const MEMORY_LIMITS = {
+  plans: 24,
+  runs: 32,
+  goals: 64,
+};
+
+function cloneValue(value) {
+  if (value === undefined) return undefined;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
 
 function normalizeGoal(goal) {
   return String(goal || '').trim();
@@ -22,12 +39,39 @@ function stripQuestionMarks(text) {
   return String(text || '').replace(/[؟?]+/g, '').trim();
 }
 
+function normalizeMemoryPath(opts = {}, kernel) {
+  if (Object.prototype.hasOwnProperty.call(opts || {}, 'memoryPath')) {
+    return opts.memoryPath;
+  }
+  const kernelMemoryPath = kernel?.graph?.memoryPath;
+  if (typeof kernelMemoryPath === 'string' && kernelMemoryPath.endsWith('.json')) {
+    return kernelMemoryPath.replace(/\.json$/, '.agent.json');
+  }
+  return path.join(process.cwd(), 'agent.memory.json');
+}
+
+function defaultMemoryState() {
+  return {
+    version: 1,
+    updatedAt: null,
+    plans: [],
+    runs: [],
+    goals: [],
+    stats: {
+      tools: {},
+      objectives: {},
+    },
+  };
+}
+
 class Agent {
   constructor(opts = {}) {
     this.kernel = opts.kernel;
     this.plugins = this.kernel?.plugins;
     this.dream = opts.dream || (this.kernel ? new Dream(this.kernel) : null);
     this.maxSteps = opts.maxSteps || DEFAULT_MAX_STEPS;
+    this.memoryPath = normalizeMemoryPath(opts, this.kernel);
+    this.memory = this._loadMemory();
     this.lastPlan = null;
     this.lastRun = null;
     this.activeGoal = null;
@@ -62,6 +106,230 @@ class Agent {
     return evidence.filter(Boolean);
   }
 
+  _loadMemory() {
+    if (!this.memoryPath) return defaultMemoryState();
+    try {
+      if (!fs.existsSync(this.memoryPath)) return defaultMemoryState();
+      const parsed = JSON.parse(fs.readFileSync(this.memoryPath, 'utf8'));
+      return this._normalizeMemory(parsed);
+    } catch (_) {
+      return defaultMemoryState();
+    }
+  }
+
+  _normalizeMemory(memory = {}) {
+    const base = defaultMemoryState();
+    const normalized = {
+      ...base,
+      ...memory,
+      plans: Array.isArray(memory.plans) ? memory.plans : [],
+      runs: Array.isArray(memory.runs) ? memory.runs : [],
+      goals: Array.isArray(memory.goals) ? memory.goals : [],
+      stats: {
+        tools: memory.stats && typeof memory.stats.tools === 'object' && memory.stats.tools ? memory.stats.tools : {},
+        objectives: memory.stats && typeof memory.stats.objectives === 'object' && memory.stats.objectives ? memory.stats.objectives : {},
+      },
+    };
+    return normalized;
+  }
+
+  _saveMemory() {
+    if (!this.memoryPath) return;
+    try {
+      const dir = path.dirname(this.memoryPath);
+      if (dir && dir !== '.') fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(this.memoryPath, JSON.stringify(this.memory, null, 2));
+    } catch (_) {
+      // Memory persistence is best-effort only.
+    }
+  }
+
+  _goalKey(goal) {
+    return lower(goal);
+  }
+
+  _findGoalRecord(goal) {
+    const key = this._goalKey(goal);
+    for (let i = this.memory.goals.length - 1; i >= 0; i -= 1) {
+      const entry = this.memory.goals[i];
+      if (entry && entry.key === key) return entry;
+    }
+    return null;
+  }
+
+  _findResumeRun(goal) {
+    const key = this._goalKey(goal);
+    for (let i = this.memory.runs.length - 1; i >= 0; i -= 1) {
+      const entry = this.memory.runs[i];
+      if (!entry || entry.key !== key) continue;
+      if (entry.status === 'completed') continue;
+      if (!Array.isArray(entry.queuedSteps) || entry.queuedSteps.length === 0) continue;
+      return entry;
+    }
+    return null;
+  }
+
+  _updateToolStats(tool, status) {
+    if (!tool) return;
+    const bucket = this.memory.stats.tools[tool] || { planned: 0, success: 0, blocked: 0, error: 0 };
+    bucket.planned += 1;
+    if (status === 'done') bucket.success += 1;
+    else if (status === 'blocked') bucket.blocked += 1;
+    else if (status === 'error') bucket.error += 1;
+    this.memory.stats.tools[tool] = bucket;
+  }
+
+  _updateObjectiveStats(objective, status) {
+    if (!objective) return;
+    const bucket = this.memory.stats.objectives[objective] || { plans: 0, completed: 0, blocked: 0, error: 0 };
+    bucket.plans += 1;
+    if (status === 'completed') bucket.completed += 1;
+    else if (status === 'blocked') bucket.blocked += 1;
+    else if (status === 'error') bucket.error += 1;
+    this.memory.stats.objectives[objective] = bucket;
+  }
+
+  _pruneMemory() {
+    this.memory.plans = this.memory.plans.slice(-MEMORY_LIMITS.plans);
+    this.memory.runs = this.memory.runs.slice(-MEMORY_LIMITS.runs);
+    this.memory.goals = this.memory.goals.slice(-MEMORY_LIMITS.goals);
+  }
+
+  _recordGoal(goal, objective, status, meta = {}) {
+    const key = this._goalKey(goal);
+    const entry = {
+      key,
+      goal: normalizeGoal(goal),
+      objective,
+      status,
+      updatedAt: nowIso(),
+      ...meta,
+    };
+    this.memory.goals.push(entry);
+    this._pruneMemory();
+  }
+
+  _rememberPlan(plan, meta = {}) {
+    const entry = {
+      id: crypto.randomUUID?.() || `plan-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      goal: plan.goal,
+      key: this._goalKey(plan.goal),
+      objective: plan.objective,
+      selectedTools: Array.isArray(plan.selectedTools) ? [...plan.selectedTools] : [],
+      steps: Array.isArray(plan.steps) ? cloneValue(plan.steps) : [],
+      status: plan.status || 'planned',
+      confidence: plan.confidence,
+      rationale: plan.rationale,
+      policy: plan.policy ? cloneValue(plan.policy) : undefined,
+      memory: plan.memory ? cloneValue(plan.memory) : undefined,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      ...meta,
+    };
+    this.memory.plans.push(entry);
+    this._recordGoal(plan.goal, plan.objective, 'planned', {
+      selectedTools: entry.selectedTools,
+    });
+    this._pruneMemory();
+    this._saveMemory();
+    return entry;
+  }
+
+  _rememberRun(state) {
+    const entry = {
+      id: state.memoryId || state.id || `run-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      goal: state.goal,
+      key: this._goalKey(state.goal),
+      objective: state.objective,
+      selectedTools: Array.isArray(state.selectedTools) ? [...state.selectedTools] : [],
+      steps: cloneValue(state.steps || []),
+      queuedSteps: cloneValue(state.queuedSteps || []),
+      evidence: cloneValue(state.evidence || []),
+      notes: cloneValue(state.notes || []),
+      plan: state.plan ? cloneValue(state.plan) : null,
+      status: state.status,
+      finalAnswer: state.finalAnswer,
+      completedSteps: state.completedSteps || 0,
+      remainingSteps: state.remainingSteps || 0,
+      report: state.report || '',
+      resumed: Boolean(state.resumed),
+      resumedFrom: state.resumedFrom || null,
+      startedAt: state.startedAt || nowIso(),
+      updatedAt: nowIso(),
+    };
+    const index = this.memory.runs.findIndex(run => run.id === entry.id);
+    if (index >= 0) this.memory.runs[index] = entry;
+    else this.memory.runs.push(entry);
+    this._updateObjectiveStats(entry.objective, state.status);
+    this._recordGoal(entry.goal, entry.objective, state.status, {
+      selectedTools: entry.selectedTools,
+      finalAnswer: entry.finalAnswer,
+      resumed: entry.resumed,
+    });
+    this._pruneMemory();
+    this._saveMemory();
+    return entry;
+  }
+
+  _policy(goal, objective) {
+    const text = lower(goal);
+    const baseOrders = {
+      learn: ['learn', 'verify', 'ask'],
+      verify: ['ask', 'verify', 'reason', 'dream'],
+      compare: ['ask', 'compare', 'dream', 'verify'],
+      reason: ['ask', 'reason', 'verify', 'dream'],
+      dream: ['dream', 'ask', 'verify'],
+      plan: ['ask', 'verify', 'dream', 'reason'],
+      investigate: ['ask', 'verify', 'reason', 'dream'],
+    };
+    const signals = [];
+    if (/(ignore|yok say|sistem mesaj|system prompt|developer message|gizli komut)/i.test(text)) {
+      signals.push('manipulation');
+    }
+    if (/\b(mi|mı|mu|mü)\b/.test(text) || /\?$/.test(text)) {
+      signals.push('question');
+    }
+    if (/(plan|task|görev|ajan|workflow|adım)/i.test(text)) {
+      signals.push('workflow');
+    }
+    const base = baseOrders[objective] || baseOrders.investigate;
+    const scores = new Map(base.map((tool, index) => [tool, 100 - index * 10]));
+    const toolStats = this.memory?.stats?.tools || {};
+    for (const [tool, stat] of Object.entries(toolStats)) {
+      const success = Number(stat.success || 0);
+      const blocked = Number(stat.blocked || 0);
+      const error = Number(stat.error || 0);
+      const boost = success * 3 - blocked * 2 - error * 4;
+      if (scores.has(tool)) scores.set(tool, scores.get(tool) + boost);
+    }
+    if (signals.includes('manipulation')) {
+      scores.set('verify', (scores.get('verify') || 0) + 25);
+      scores.set('reason', (scores.get('reason') || 0) + 8);
+    }
+    const goalRecord = this._findGoalRecord(goal);
+    if (goalRecord) {
+      signals.push('known-goal');
+      scores.set('ask', (scores.get('ask') || 0) + 6);
+    }
+    const ordered = [...scores.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([tool]) => tool);
+    for (const tool of base) {
+      if (!ordered.includes(tool)) ordered.push(tool);
+    }
+    return {
+      objective,
+      selectedTools: ordered.slice(0, 4),
+      baseTools: base,
+      signals,
+      rationale: signals.includes('manipulation')
+        ? 'Risk-aware policy boosted verify and reason first.'
+        : goalRecord
+          ? 'Known goal found in memory, so the planner keeps a slightly stronger ask/verify mix.'
+          : 'Default tool policy selected by objective.',
+    };
+  }
+
   _objective(goal) {
     const text = lower(goal);
     if (/(öğren|ekle|kaydet|teach|learn)/i.test(text)) return 'learn';
@@ -78,12 +346,12 @@ class Agent {
     const objective = this._objective(goal);
     const cleanedGoal = normalizeGoal(goal);
     const shortGoal = firstWords(cleanedGoal, 5);
+    const policy = this._policy(cleanedGoal, objective);
     const steps = [];
-    const selectedTools = [];
+    const selectedTools = [...policy.selectedTools];
 
     const pushStep = (id, action, tool, input, rationale) => {
       steps.push({ id, action, tool, input, rationale });
-      if (!selectedTools.includes(tool)) selectedTools.push(tool);
     };
 
     if (objective === 'learn') {
@@ -113,6 +381,11 @@ class Agent {
     }
 
     const limitedSteps = steps.slice(0, Math.max(1, opts.maxSteps || this.maxSteps));
+    const memorySummary = {
+      knownGoals: this.memory.goals.length,
+      previousRuns: this.memory.runs.filter(run => run && run.key === this._goalKey(cleanedGoal)).length,
+      resumed: Boolean(this._findResumeRun(cleanedGoal)),
+    };
     const plan = {
       goal: cleanedGoal,
       objective,
@@ -122,6 +395,8 @@ class Agent {
       maxSteps: Math.max(1, opts.maxSteps || this.maxSteps),
       status: 'planned',
       confidence: objective === 'investigate' ? 0.58 : 0.74,
+      policy,
+      memory: memorySummary,
       rationale: objective === 'investigate'
         ? 'Genel amaç belirsiz; önce bağlam topla, sonra karar ver.'
         : 'Amaç sinyali açık; ilgili araçlar sıralandı.',
@@ -131,6 +406,7 @@ class Agent {
     this.activeGoal = cleanedGoal;
     this._emit('beforePlan', plan);
     this._emit('afterPlan', plan);
+    this._rememberPlan(plan);
     return this._ok('plan', plan, [], { objective });
   }
 
@@ -231,24 +507,50 @@ class Agent {
 
   run(goal, opts = {}) {
     const planResult = this.plan(goal, opts);
-    const plan = planResult.data;
-    const state = {
-      goal: plan.goal,
-      objective: plan.objective,
-      selectedTools: [...plan.selectedTools],
+    const freshPlan = planResult.data;
+    const resumeCandidate = opts.resume === false ? null : this._findResumeRun(goal);
+    const activePlan = resumeCandidate && resumeCandidate.plan ? resumeCandidate.plan : freshPlan;
+    const state = resumeCandidate ? {
+      goal: activePlan.goal,
+      objective: activePlan.objective,
+      selectedTools: [...(activePlan.selectedTools || [])],
+      plan: cloneValue(activePlan),
+      steps: Array.isArray(resumeCandidate.steps) ? cloneValue(resumeCandidate.steps) : [],
+      evidence: Array.isArray(resumeCandidate.evidence) ? cloneValue(resumeCandidate.evidence) : [],
+      status: 'running',
+      notes: Array.isArray(resumeCandidate.notes) ? cloneValue(resumeCandidate.notes) : [],
+      queuedSteps: Array.isArray(resumeCandidate.queuedSteps) && resumeCandidate.queuedSteps.length
+        ? cloneValue(resumeCandidate.queuedSteps)
+        : cloneValue(activePlan.steps || []),
+      resumed: true,
+      resumedFrom: resumeCandidate.id,
+      startedAt: resumeCandidate.startedAt || nowIso(),
+    } : {
+      goal: freshPlan.goal,
+      objective: freshPlan.objective,
+      selectedTools: [...freshPlan.selectedTools],
+      plan: cloneValue(freshPlan),
       steps: [],
       evidence: [],
       status: 'running',
       notes: [],
+      queuedSteps: cloneValue(freshPlan.steps || []),
+      resumed: false,
+      resumedFrom: null,
+      startedAt: nowIso(),
     };
+    state.completedSteps = state.steps.length;
+    state.remainingSteps = Array.isArray(state.queuedSteps) ? state.queuedSteps.length : 0;
     this._emit('beforeAgentRun', state);
 
-    const queued = [...plan.steps];
-    while (queued.length > 0 && state.steps.length < plan.maxSteps) {
+    const queued = Array.isArray(state.queuedSteps) ? [...state.queuedSteps] : [];
+    this._rememberRun(state);
+    while (queued.length > 0 && state.steps.length < activePlan.maxSteps) {
       const step = queued.shift();
       const report = this._executeStep(step, state, opts);
       state.steps.push(report);
       state.evidence.push(...this._collectEvidence([report.result]));
+      this._updateToolStats(report.tool, report.status);
       state.notes.push({
         step: report.action,
         summary: report.summary,
@@ -256,7 +558,7 @@ class Agent {
 
       const summary = this._extractAgentSummary(report.result);
       const followUp = this._chooseFollowUp(step, summary, state);
-      if (followUp && state.steps.length < plan.maxSteps) {
+      if (followUp && state.steps.length < activePlan.maxSteps) {
         queued.unshift({
           id: `${followUp.action}-${state.steps.length + 1}`,
           action: followUp.action,
@@ -265,6 +567,10 @@ class Agent {
           rationale: `Önceki adımın sonucu ek adım gerektirdi.`,
         });
       }
+      state.queuedSteps = [...queued];
+      state.completedSteps = state.steps.length;
+      state.remainingSteps = queued.length;
+      this._rememberRun(state);
     }
 
     const finalStep = state.steps[state.steps.length - 1];
@@ -273,14 +579,21 @@ class Agent {
     state.status = finalStep && finalStep.result && finalStep.result.ok === false ? 'blocked' : 'completed';
     state.finalAnswer = finalAnswer;
     state.completedSteps = state.steps.length;
-    state.remainingSteps = Math.max(0, plan.maxSteps - state.steps.length);
+    state.remainingSteps = queued.length;
     state.report = this._renderReport(state);
+    state.memory = {
+      path: this.memoryPath,
+      goals: this.memory.goals.length,
+      runs: this.memory.runs.length,
+    };
     this.lastRun = state;
+    this._rememberRun(state);
     this._emit('afterAgentRun', state);
 
     return this._ok('agent', state, state.evidence, {
-      objective: plan.objective,
-      selectedTools: plan.selectedTools,
+      objective: activePlan.objective,
+      selectedTools: activePlan.selectedTools,
+      resumed: state.resumed,
     });
   }
 

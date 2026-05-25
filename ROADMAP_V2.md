@@ -53,6 +53,6 @@ Status: Completed
 
 ## Next Active Track (v3.0 Agent Workflow)
 
-- Scope: lightweight multi-step agent planner, tool selection policy, and execution reports.
-- Candidate areas after this phase: language packs, agent memory, and richer workflow policies.
+- Scope: lightweight multi-step agent planner, persistent goal memory, tool selection policy, and execution reports.
+- Candidate areas after this phase: language packs, richer workflow policies, and longer autonomous loops.
 - Keep CLI/REST compatibility while extending core behavior.
