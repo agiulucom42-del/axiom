@@ -11,6 +11,8 @@ describe('Tool Policy', () => {
     assert.strictEqual(policy.approval, 'auto');
     assert.strictEqual(policy.blocked, false);
     assert.strictEqual(policy.riskScore, 0);
+    assert.strictEqual(policy.executionMode, 'direct');
+    assert.strictEqual(policy.sandbox, null);
   });
 
   it('scores review-only external requests with approval metadata', () => {
@@ -27,6 +29,8 @@ describe('Tool Policy', () => {
     assert.ok(policy.riskScore < 90);
     assert.ok(Array.isArray(policy.labels));
     assert.ok(policy.reasons.length >= 1);
+    assert.strictEqual(policy.executionMode, 'sandbox');
+    assert.strictEqual(policy.sandbox.runner, 'node:vm');
   });
 
   it('marks destructive input as blocked with high risk', () => {
@@ -40,5 +44,7 @@ describe('Tool Policy', () => {
     assert.strictEqual(policy.blocked, true);
     assert.ok(policy.riskScore >= 85);
     assert.ok(policy.labels.includes('blocked'));
+    assert.strictEqual(policy.executionMode, 'blocked');
+    assert.strictEqual(policy.sandbox, null);
   });
 });

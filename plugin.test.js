@@ -3,21 +3,36 @@ const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
 const Kernel = require('./kernel');
+const PluginManager = require('./plugin');
 
-describe('Plugin - Yönetici', () => {
+function writePluginWithManifest(pluginPath, contents, opts = {}) {
+  const manifestPath = pluginPath.replace(/\.js$/i, '.manifest.json');
+  fs.writeFileSync(pluginPath, contents);
+  const sha256 = PluginManager.hashFile(pluginPath);
+  const manifest = { sha256 };
+  if (opts.signatureKey) {
+    manifest.signature = PluginManager.hmacSign(sha256, opts.signatureKey);
+  }
+  if (opts.manifest !== false) {
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  }
+  return { manifestPath, sha256 };
+}
+
+describe('Plugin - Yonetici', () => {
   it('usePlugin: eklenti kaydeder', () => {
     const k = new Kernel({ noLoad: true });
     k.usePlugin({ name: 'test', beforeLearn(k2, data) { data.text = 'plugin test'; } });
-    k.learn('kedi balık yer');
+    k.learn('kedi balik yer');
     assert.ok(k.graph.getNode('plugin'));
   });
 
-  it('beforeLearn: metni değiştirebilir', () => {
+  it('beforeLearn: metni degistirebilir', () => {
     const k = new Kernel({ noLoad: true });
     k.usePlugin({
       name: 'translator',
       beforeLearn(k2, data) {
-        if (data.text === 'cat eats fish') data.text = 'kedi balık yer';
+        if (data.text === 'cat eats fish') data.text = 'kedi balik yer';
       }
     });
     k.learn('cat eats fish');
@@ -25,68 +40,70 @@ describe('Plugin - Yönetici', () => {
     assert.strictEqual(k.graph.getNode('cat'), null);
   });
 
-  it('afterLearn: öğrenme sonrası tetiklenir', () => {
+  it('afterLearn: ogrenme sonrasi tetiklenir', () => {
     let triggered = false;
     const k = new Kernel({ noLoad: true });
     k.usePlugin({
       name: 'logger',
-      afterLearn(k2, data) { triggered = true; assert.strictEqual(data.text, 'kedi balık yer'); }
+      afterLearn(k2, data) { triggered = true; assert.strictEqual(data.text, 'kedi balik yer'); }
     });
-    k.learn('kedi balık yer');
+    k.learn('kedi balik yer');
     assert.strictEqual(triggered, true);
   });
 
-  it('beforeAsk: soruyu değiştirebilir', () => {
+  it('beforeAsk: soruyu degistirebilir', () => {
     const k = new Kernel({ noLoad: true });
-    k.learn('kedi balık yer');
+    k.learn('kedi balik yer');
     k.usePlugin({
       name: 'alias',
       beforeAsk(k2, data) { data.question = data.question.replace('cat', 'kedi'); }
     });
     const answer = k.ask('cat nedir').data.answer;
-    assert.ok(answer.includes('balık'));
+    assert.ok(answer.includes('balik'));
   });
 
-  it('afterAsk: cevabı loglar', () => {
+  it('afterAsk: cevabi loglar', () => {
     let log;
     const k = new Kernel({ noLoad: true });
     k.usePlugin({
       name: 'qaLog',
       afterAsk(k2, data) { log = data; }
     });
-    k.learn('kedi balık yer');
+    k.learn('kedi balik yer');
     const answer = k.ask('kedi nedir').data.answer;
     assert.strictEqual(log.question, 'kedi nedir');
     assert.strictEqual(log.answer, answer);
   });
 
-  it('birden fazla plugin zincirleme çalışır', () => {
-    let order = [];
+  it('birden fazla plugin zincirleme calisir', () => {
+    const order = [];
     const k = new Kernel({ noLoad: true });
     k.usePlugin({ name: 'a', beforeLearn(k2, d) { order.push('a'); } });
     k.usePlugin({ name: 'b', beforeLearn(k2, d) { order.push('b'); } });
-    k.learn('kedi balık yer');
+    k.learn('kedi balik yer');
     assert.deepStrictEqual(order, ['a', 'b']);
   });
 
-  it('init: yükleme anında çağrılır', () => {
+  it('init: yukleme aninda cagrilir', () => {
     let inited = false;
     const k = new Kernel({ noLoad: true });
     k.usePlugin({ name: 'initTest', init(k2) { inited = true; } });
     assert.strictEqual(inited, true);
   });
 
-  it('load: plugins/ dizininden yükler', () => {
+  it('load: plugins dizininden yukler', () => {
     const pDir = path.join(__dirname, 'plugins');
     if (!fs.existsSync(pDir)) fs.mkdirSync(pDir);
     const pluginPath = path.join(pDir, 'test-plugin.js');
+    const manifestPath = pluginPath.replace(/\.js$/i, '.manifest.json');
     try {
-      fs.writeFileSync(pluginPath, `module.exports = { name: 'filePlugin', beforeLearn(k, d) { d.text = 'eklenti dosya'; } };`);
+      writePluginWithManifest(pluginPath, `module.exports = { name: 'filePlugin', beforeLearn(k, d) { d.text = 'eklenti dosya'; } };`);
       const k = new Kernel({ noLoad: true });
       const loaded = k.plugins.load(pDir);
       assert.ok(loaded >= 1);
     } finally {
       try { fs.unlinkSync(pluginPath); } catch {}
+      try { fs.unlinkSync(manifestPath); } catch {}
     }
   });
 
@@ -97,23 +114,23 @@ describe('Plugin - Yönetici', () => {
       name: 'dreamLog',
       afterDream(k2, data) { hypotheses = data.hypotheses; }
     });
-    k.learn('kedi balık yer');
+    k.learn('kedi balik yer');
     k.learn('kedi fare yer');
-    k.learn('balık suda yaşar');
+    k.learn('balik suda yasar');
     const dream = new (require('./dream'))(k);
     dream.dream();
     assert.ok(Array.isArray(hypotheses));
   });
 
-  it('beforeEmbedding: parametreleri değiştirebilir', () => {
+  it('beforeEmbedding: parametreleri degistirebilir', () => {
     const k = new Kernel({ noLoad: true });
     k.usePlugin({
       name: 'dimOverride',
       beforeEmbedding(k2, opts) { opts.dimensions = 128; }
     });
-    k.learn('kedi balık yer');
+    k.learn('kedi balik yer');
     k.learn('kedi fare yer');
-    k.learn('balık suda yaşar');
+    k.learn('balik suda yasar');
     k.learn('fare peynir yer');
     const dream = new (require('./dream'))(k);
     dream.embedding({ dimensions: 64 });
@@ -121,13 +138,71 @@ describe('Plugin - Yönetici', () => {
     assert.strictEqual(node.embedding.length, 128);
   });
 
-  it('beforeDream: rüya öncesi tetiklenir', () => {
+  it('beforeDream: ruya oncesi tetiklenir', () => {
     let flag = false;
     const k = new Kernel({ noLoad: true });
     k.usePlugin({ name: 'd', beforeDream() { flag = true; } });
-    k.learn('kedi balık yer');
+    k.learn('kedi balik yer');
     const dream = new (require('./dream'))(k);
     dream.dream();
     assert.strictEqual(flag, true);
+  });
+
+  it('verifyPluginFile: hash mismatch rejects plugin', () => {
+    const pDir = path.join(__dirname, 'plugins');
+    if (!fs.existsSync(pDir)) fs.mkdirSync(pDir);
+    const pluginPath = path.join(pDir, 'hash-mismatch.js');
+    const manifestPath = pluginPath.replace(/\.js$/i, '.manifest.json');
+    try {
+      writePluginWithManifest(pluginPath, `module.exports = { name: 'hashMismatch' };`);
+      fs.writeFileSync(pluginPath, `module.exports = { name: 'hashMismatch', version: 2 };`);
+      const verification = PluginManager.verifyPluginFile(pluginPath, { strict: true });
+      assert.strictEqual(verification.ok, false);
+      assert.strictEqual(verification.status, 'rejected');
+      assert.match(verification.reason, /hash mismatch/i);
+    } finally {
+      try { fs.unlinkSync(pluginPath); } catch {}
+      try { fs.unlinkSync(manifestPath); } catch {}
+    }
+  });
+
+  it('load: strict mode skips unsigned plugins', () => {
+    const pDir = path.join(__dirname, 'plugins-temp-strict');
+    if (!fs.existsSync(pDir)) fs.mkdirSync(pDir);
+    const pluginPath = path.join(pDir, 'strict-plugin.js');
+    const manifestPath = pluginPath.replace(/\.js$/i, '.manifest.json');
+    const original = process.env.AXIOM_PLUGIN_STRICT;
+    try {
+      writePluginWithManifest(pluginPath, `module.exports = { name: 'strictPlugin' };`, { manifest: false });
+      process.env.AXIOM_PLUGIN_STRICT = '1';
+      const k = new Kernel({ noLoad: true, loadPlugins: false });
+      const loaded = k.plugins.load(pDir);
+      assert.strictEqual(loaded, 0);
+    } finally {
+      if (original === undefined) delete process.env.AXIOM_PLUGIN_STRICT;
+      else process.env.AXIOM_PLUGIN_STRICT = original;
+      try { fs.unlinkSync(pluginPath); } catch {}
+      try { fs.unlinkSync(manifestPath); } catch {}
+      try { fs.rmdirSync(pDir); } catch {}
+    }
+  });
+
+  it('verifyPluginFile: signed manifest validates with shared key', () => {
+    const pDir = path.join(__dirname, 'plugins');
+    if (!fs.existsSync(pDir)) fs.mkdirSync(pDir);
+    const pluginPath = path.join(pDir, 'signed-plugin.js');
+    const manifestPath = pluginPath.replace(/\.js$/i, '.manifest.json');
+    try {
+      writePluginWithManifest(pluginPath, `module.exports = { name: 'signedPlugin' };`, { signatureKey: 'secret-key' });
+      const verification = PluginManager.verifyPluginFile(pluginPath, {
+        strict: true,
+        signatureKey: 'secret-key',
+      });
+      assert.strictEqual(verification.ok, true);
+      assert.strictEqual(verification.status, 'verified-signed');
+    } finally {
+      try { fs.unlinkSync(pluginPath); } catch {}
+      try { fs.unlinkSync(manifestPath); } catch {}
+    }
   });
 });

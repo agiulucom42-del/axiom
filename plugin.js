@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const EVENTS = [
   'beforeLearn',
@@ -20,11 +21,103 @@ const EVENTS = [
   'afterAgentRun',
 ];
 
+function hashFile(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function hmacSign(value, signingKey) {
+  return crypto.createHmac('sha256', String(signingKey)).update(String(value)).digest('hex');
+}
+
+function getManifestPath(filePath) {
+  const parsed = path.parse(filePath);
+  return path.join(parsed.dir, `${parsed.name}.manifest.json`);
+}
+
+function readManifest(filePath) {
+  const manifestPath = getManifestPath(filePath);
+  if (!fs.existsSync(manifestPath)) return null;
+  return {
+    manifestPath,
+    manifest: JSON.parse(fs.readFileSync(manifestPath, 'utf8')),
+  };
+}
+
+function verifyPluginFile(filePath, opts = {}) {
+  const strict = opts.strict === true;
+  const signatureKey = opts.signatureKey || process.env.AXIOM_PLUGIN_SIGNING_KEY || '';
+  const currentHash = hashFile(filePath);
+  const manifestRecord = readManifest(filePath);
+
+  if (!manifestRecord) {
+    return {
+      ok: !strict,
+      status: strict ? 'rejected' : 'unverified',
+      sha256: currentHash,
+      manifestPath: getManifestPath(filePath),
+      reason: strict ? 'Plugin manifest is required in strict mode.' : 'Plugin manifest not found.',
+    };
+  }
+
+  const { manifest, manifestPath } = manifestRecord;
+  if (!manifest || typeof manifest !== 'object') {
+    return {
+      ok: false,
+      status: 'rejected',
+      sha256: currentHash,
+      manifestPath,
+      reason: 'Plugin manifest is invalid.',
+    };
+  }
+
+  if (manifest.sha256 !== currentHash) {
+    return {
+      ok: false,
+      status: 'rejected',
+      sha256: currentHash,
+      manifestPath,
+      reason: 'Plugin hash mismatch.',
+    };
+  }
+
+  if (signatureKey) {
+    if (!manifest.signature) {
+      return {
+        ok: !strict,
+        status: strict ? 'rejected' : 'hash-only',
+        sha256: currentHash,
+        manifestPath,
+        reason: strict ? 'Plugin signature is required in strict mode.' : 'Plugin signature not found.',
+      };
+    }
+    const expectedSignature = hmacSign(currentHash, signatureKey);
+    if (manifest.signature !== expectedSignature) {
+      return {
+        ok: false,
+        status: 'rejected',
+        sha256: currentHash,
+        manifestPath,
+        reason: 'Plugin signature mismatch.',
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    status: signatureKey ? 'verified-signed' : 'verified',
+    sha256: currentHash,
+    manifestPath,
+    reason: signatureKey ? 'Plugin hash and signature verified.' : 'Plugin hash verified.',
+  };
+}
+
 class PluginManager {
   constructor(kernel) {
     this.kernel = kernel;
     this.plugins = [];
     this._handlers = {};
+    this.strictPlugins = process.env.AXIOM_PLUGIN_STRICT === '1';
+    this.pluginSigningKey = process.env.AXIOM_PLUGIN_SIGNING_KEY || '';
     for (const e of EVENTS) this._handlers[e] = [];
   }
 
@@ -34,12 +127,22 @@ class PluginManager {
     const files = fs.readdirSync(pDir).filter(f => f.endsWith('.js'));
     let count = 0;
     for (const file of files) {
+      const filePath = path.join(pDir, file);
       try {
-        const plugin = require(path.join(pDir, file));
+        const verification = verifyPluginFile(filePath, {
+          strict: this.strictPlugins,
+          signatureKey: this.pluginSigningKey,
+        });
+        if (!verification.ok) {
+          console.error(`Plugin yuklenemedi: ${file} - ${verification.reason}`);
+          continue;
+        }
+        const plugin = require(filePath);
+        plugin.__verification = verification;
         this.register(plugin);
         count++;
       } catch (err) {
-        console.error(`Plugin yüklenemedi: ${file} - ${err.message}`);
+        console.error(`Plugin yuklenemedi: ${file} - ${err.message}`);
       }
     }
     return count;
@@ -63,7 +166,7 @@ class PluginManager {
       try {
         plugin[event](this.kernel, data);
       } catch (err) {
-        console.error(`Plugin hatası [${plugin.name}][${event}]: ${err.message}`);
+        console.error(`Plugin hatasi [${plugin.name}][${event}]: ${err.message}`);
       }
     }
     return data;
@@ -71,3 +174,6 @@ class PluginManager {
 }
 
 module.exports = PluginManager;
+module.exports.hashFile = hashFile;
+module.exports.hmacSign = hmacSign;
+module.exports.verifyPluginFile = verifyPluginFile;

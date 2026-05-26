@@ -75,7 +75,7 @@ class Kernel {
       ok: true,
       type,
       data,
-      evidence: Array.isArray(evidence) ? evidence : [],
+      evidence: this._rankEvidence(Array.isArray(evidence) ? evidence : []),
       error: null,
       meta: {
         contractVersion: this.contractVersion,
@@ -118,11 +118,29 @@ class Kernel {
     return { from: edge.from, to: edge.to, relation: edge.relation };
   }
 
+  _rankEvidence(evidence = []) {
+    const seen = new Set();
+    return evidence
+      .filter(Boolean)
+      .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
+      .filter(item => {
+        const key = `${item.kind || 'evidence'}|${item.text || ''}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
   _edgeEvidence(edge, kind = 'direct_edge', confidence) {
+    const score = Math.max(0, Math.min(1, confidence ?? edge.confidence ?? edge.weight ?? 0));
+    const details = [];
+    if (edge.relation) details.push(`relation=${edge.relation}`);
+    if (edge.source) details.push(`source=${edge.source}`);
+    details.push(`confidence=${score.toFixed(2)}`);
     return {
       kind,
-      text: `${edge.from} --[${edge.relation}]--> ${edge.to}`,
-      confidence: Math.max(0, Math.min(1, confidence ?? edge.confidence ?? edge.weight ?? 0)),
+      text: `${edge.from} --[${edge.relation}]--> ${edge.to} (${details.join(', ')})`,
+      confidence: score,
       nodes: [edge.from, edge.to],
       edges: [this._edgeRef(edge)],
     };
@@ -138,7 +156,7 @@ class Kernel {
     }
     return {
       kind,
-      text: pathArr.join(' ? '),
+      text: pathArr.join(' -> '),
       confidence: Math.max(0, Math.min(1, confidence)),
       nodes: [...pathArr],
       edges,
@@ -146,12 +164,16 @@ class Kernel {
   }
 
   _contradictionEvidence(contradiction) {
+    const targets = Array.isArray(contradiction.targets) ? contradiction.targets : [];
+    const edges = Array.isArray(contradiction.edges)
+      ? contradiction.edges.map(edge => this._edgeRef(edge))
+      : targets.map(to => ({ from: contradiction.node, to, relation: contradiction.relation || 'tür' }));
     return {
       kind: 'contradiction',
-      text: `${contradiction.node} ? ${contradiction.targets.join(', ')}`,
+      text: contradiction.message || `${contradiction.node} conflicts with ${targets.join(', ')}`,
       confidence: Math.max(0, Math.min(1, contradiction.confidence || 0.7)),
-      nodes: [contradiction.node, ...contradiction.targets],
-      edges: contradiction.targets.map(to => ({ from: contradiction.node, to, relation: 'tür' })),
+      nodes: [contradiction.node, ...targets],
+      edges,
     };
   }
 
@@ -1241,6 +1263,8 @@ if (verbSuffix.test(predicate)) {
           node: node.id,
           targets: typeEdges.map(e => e.to),
           confidence: Math.min(0.6, typeEdges.length * 0.15),
+          edges: typeEdges,
+          message: `"${node.id}" birden fazla tur bilgisi tasiyor: ${typeEdges.map(e => e.to).join(', ')}`,
         });
       }
     }
@@ -1257,6 +1281,8 @@ if (verbSuffix.test(predicate)) {
               node: node.id,
               targets: [edge.to],
               confidence: 0.7,
+              edges: [edge, backEdge],
+              message: `"${node.id}" ve "${edge.to}" karsilikli tur iliskisi kuruyor`,
             });
           }
         }
@@ -1279,6 +1305,7 @@ if (verbSuffix.test(predicate)) {
               targets: [degil.to, other.to],
               confidence: 0.8,
               message: `"${node.id}" için "${degil.to}" (değil) ile "${other.to}" (${other.relation}) çelişiyor`,
+              edges: [degil, other],
             });
           }
         }
@@ -1311,6 +1338,7 @@ if (verbSuffix.test(predicate)) {
             targets: [edgesWithNums[i].edge.to, edgesWithNums[j].edge.to],
             confidence: 0.75,
             message: `"${node.id}" için sayısal çelişki: ${edgesWithNums[i].nums} vs ${edgesWithNums[j].nums}`,
+            edges: [edgesWithNums[i].edge, edgesWithNums[j].edge],
           });
         }
       }
@@ -1329,6 +1357,7 @@ if (verbSuffix.test(predicate)) {
             message: e.celiski
               ? `"${node.id}" --[${e.relation}]--> "${e.to}" çelişki nedeniyle düşürüldü (weight: ${e.weight})`
               : `"${node.id}" --[${e.relation}]--> "${e.to}" düşük güven (weight: ${e.weight})`,
+            edges: [e],
           });
         }
       }

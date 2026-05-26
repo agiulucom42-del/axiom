@@ -1,4 +1,9 @@
 const INTERNAL_TOOLS = new Set(['learn', 'ask', 'verify', 'reason', 'compare', 'dream']);
+const DEFAULT_SANDBOX = Object.freeze({
+  runner: 'node:vm',
+  timeoutMs: 150,
+  codeGeneration: 'disabled',
+});
 
 const EXTERNAL_BLOCK_PATTERNS = [
   /\b(shell|cmd|powershell|bash|sh|exec|eval|python|node|curl|wget)\b/i,
@@ -82,6 +87,8 @@ function evaluateToolPolicy({ tool, input = '', context = {}, internalTools = IN
       reasons: ['Internal AXIOM tool.'],
       suggestedNextStep: 'No additional action required.',
       source: 'toolPolicy',
+      executionMode: 'direct',
+      sandbox: null,
     };
   }
 
@@ -113,6 +120,8 @@ function evaluateToolPolicy({ tool, input = '', context = {}, internalTools = IN
       : 'Ask for approval or route through a sandboxed executor.',
     source: 'toolPolicy',
     context: context && typeof context === 'object' ? { ...context } : {},
+    executionMode: blocked ? 'blocked' : 'sandbox',
+    sandbox: blocked ? null : { ...DEFAULT_SANDBOX },
   };
 }
 

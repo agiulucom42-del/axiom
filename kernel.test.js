@@ -103,6 +103,18 @@ describe('Kernel - Çıkarım', () => {
     assert.strictEqual(falseComparison.data.status, 'celiski');
     assert.ok(falseComparison.evidence.length > 0);
   });
+
+  it('contradiction evidence keeps the underlying edge relation', () => {
+    const k = freshKernel();
+    k.learn('kiraci alt kiralayabilir');
+    k.learn('kiraci alt kiralayamaz');
+    const contradictionSource = k.detectContradictions().find(item => item.type === 'negasyon');
+    const contradiction = k._contradictionEvidence(contradictionSource);
+    assert.ok(contradiction);
+    assert.ok(contradiction.text.length > 0);
+    assert.ok(contradiction.nodes.includes('kiraci'));
+    assert.ok(contradiction.edges.some(edge => edge.relation === 'değil' || edge.relation === 'yapabilir'));
+  });
 });
 
 describe('Kernel - Bağlam Duyarlı Benzerlik', () => {
@@ -191,6 +203,17 @@ describe('Kernel - Çelişki Tespiti', () => {
     const cons = k.detectContradictions();
     assert.ok(Array.isArray(cons));
     assert.strictEqual(cons.length, 0);
+  });
+
+  it('detectContradictions: sayisal contradiction carries concrete edges', () => {
+    const k = freshKernel();
+    k.learn('depozito en fazla 3 aylik kira bedelidir');
+    k.learn('depozito en fazla 6 aylik kira bedelidir');
+    const cons = k.detectContradictions();
+    const numeric = cons.find(c => c.type === 'sayısal');
+    assert.ok(numeric);
+    assert.ok(Array.isArray(numeric.edges));
+    assert.strictEqual(numeric.edges.length, 2);
   });
 });
 

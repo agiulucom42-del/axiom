@@ -96,7 +96,7 @@ function benchFixture(label, statements, options = {}) {
 }
 
 function runBenchmarks(options = {}) {
-  const fixtures = options.fixtures || ['small', 'medium', 'large'];
+  const fixtures = options.fixtures || ['small', 'medium', 'large', 'xlarge'];
   const iterations = options.iterations ?? 5;
   return fixtures.map(name => benchFixture(name, loadFixture(name), { iterations }));
 }

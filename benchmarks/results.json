@@ -5,32 +5,42 @@
     "small": {
       "nodes": 6,
       "edges": 5,
-      "learn": 30.994,
-      "ask": 0.239,
-      "verify": 0.129,
-      "reason": 0.21,
-      "compare": 0.239,
-      "dream": 0.604
+      "learn": 29.191,
+      "ask": 0.75,
+      "verify": 0.32,
+      "reason": 0.164,
+      "compare": 0.196,
+      "dream": 0.714
     },
     "medium": {
       "nodes": 19,
       "edges": 15,
-      "learn": 29.167,
-      "ask": 0.13,
-      "verify": 0.047,
-      "reason": 0.153,
-      "compare": 0.043,
-      "dream": 1.097
+      "learn": 30.781,
+      "ask": 0.145,
+      "verify": 0.022,
+      "reason": 0.25,
+      "compare": 0.327,
+      "dream": 0.527
     },
     "large": {
       "nodes": 49,
       "edges": 30,
-      "learn": 28.256,
-      "ask": 0.043,
-      "verify": 0.02,
-      "reason": 0.061,
-      "compare": 0.036,
-      "dream": 4.833
+      "learn": 38.748,
+      "ask": 0.292,
+      "verify": 0.032,
+      "reason": 0.086,
+      "compare": 0.06,
+      "dream": 3.895
+    },
+    "xlarge": {
+      "nodes": 140,
+      "edges": 131,
+      "learn": 120.294,
+      "ask": 0.064,
+      "verify": 0.025,
+      "reason": 0.037,
+      "compare": 0.11,
+      "dream": 1.25
     }
   }
 }
