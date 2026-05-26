@@ -164,6 +164,37 @@ describe('Agent', () => {
     assert.ok(plan.data.policy.failureHits.length >= 1);
     assert.ok(plan.data.rationale.includes('Amaç sinyali açık') || plan.data.rationale.includes('Default'));
   });
+
+  it('surfaces policy scores and demotes unhealthy tools', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'axiom-agent-policy-score-'));
+    const memoryPath = path.join(tmpDir, 'agent.memory.json');
+    const stamp = new Date().toISOString();
+    fs.writeFileSync(memoryPath, JSON.stringify({
+      version: 1,
+      updatedAt: stamp,
+      plans: [],
+      runs: [],
+      goals: [],
+      failures: [],
+      stats: {
+        tools: {
+          ask: { planned: 3, success: 0, blocked: 0, error: 3 },
+          verify: { planned: 3, success: 3, blocked: 0, error: 0 },
+        },
+        objectives: {},
+      },
+    }, null, 2));
+
+    const agent = freshAgent(memoryPath);
+    const plan = agent.plan('kedi hayvandir mi?');
+    assert.strictEqual(plan.ok, true);
+    assert.ok(plan.data.policy.signals.includes('tool-health-risk'));
+    assert.ok(Array.isArray(plan.data.policy.toolScores));
+    assert.ok(plan.data.policy.toolScores.some(item => item.tool === 'ask' && item.reasons.includes('tool-health-negative')));
+    assert.ok(plan.data.policy.toolScores.some(item => item.tool === 'verify' && item.reasons.includes('tool-health-positive')));
+    assert.strictEqual(plan.data.selectedTools[0], 'verify');
+  });
+
   it('blocks unsupported tools instead of silently rerouting them', () => {
     const agent = freshAgent();
     const originalPlan = agent.plan.bind(agent);
@@ -209,6 +240,7 @@ describe('Agent', () => {
     assert.strictEqual(runResult.data.status, 'blocked');
     assert.ok(runResult.data.steps.some(step => step.status === 'blocked'));
     assert.ok(runResult.data.report.includes('Durum: blocked'));
+    assert.ok(runResult.data.report.includes('Sonraki ad'));
     assert.ok(runResult.data.report.includes('Öneri:'));
     assert.ok(runResult.data.report.includes('Araç sağlığı:'));
     assert.ok(runResult.data.recommendations);

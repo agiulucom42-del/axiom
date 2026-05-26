@@ -49,6 +49,9 @@ describe('AgentV3', () => {
     assert.ok(secondRun.data.completedSteps >= firstRun.data.completedSteps);
     assert.ok(secondRun.data.report.includes('Checkpoint:'));
     assert.ok(secondRun.data.report.includes('Resume:'));
+    assert.ok(secondRun.data.report.includes('Sonraki ad'));
+    assert.ok(secondRun.data.nextAction);
+    assert.ok(secondRun.data.recommendations);
 
     const goalMemory = resumed.storage.getGoalMemory('kedi hayvandir mi?');
     assert.ok(goalMemory);

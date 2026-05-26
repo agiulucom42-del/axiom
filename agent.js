@@ -399,22 +399,44 @@ class Agent {
     }
     const base = baseOrders[objective] || baseOrders.investigate;
     const scores = new Map(base.map((tool, index) => [tool, 100 - index * 10]));
+    const scoreReasons = new Map(base.map(tool => [tool, ['objective-default']]));
+    const bump = (tool, amount, reason) => {
+      scores.set(tool, (scores.get(tool) || 0) + amount);
+      const reasons = scoreReasons.get(tool) || [];
+      reasons.push(reason);
+      scoreReasons.set(tool, reasons);
+    };
     const toolStats = this.memory?.stats?.tools || {};
     for (const [tool, stat] of Object.entries(toolStats)) {
       const success = Number(stat.success || 0);
       const blocked = Number(stat.blocked || 0);
       const error = Number(stat.error || 0);
-      const boost = success * 3 - blocked * 2 - error * 4;
-      if (scores.has(tool)) scores.set(tool, scores.get(tool) + boost);
+      const planned = Number(stat.planned || 0);
+      const boost = success * 4 - blocked * 5 - error * 7;
+      if (scores.has(tool) && boost !== 0) {
+        bump(tool, boost, boost > 0 ? 'tool-health-positive' : 'tool-health-negative');
+      }
+      if (planned > 0 && (blocked + error) > success && scores.has(tool)) {
+        signals.push('tool-health-risk');
+      }
     }
     if (signals.includes('manipulation')) {
-      scores.set('verify', (scores.get('verify') || 0) + 25);
-      scores.set('reason', (scores.get('reason') || 0) + 8);
+      bump('verify', 25, 'manipulation-risk');
+      bump('reason', 8, 'manipulation-risk');
     }
     const goalRecord = this._findGoalRecord(goal);
     if (goalRecord) {
       signals.push('known-goal');
-      scores.set('ask', (scores.get('ask') || 0) + 6);
+      bump('ask', 6, 'known-goal');
+      if (goalRecord.status === 'completed') {
+        signals.push('known-goal-success');
+        bump('verify', 5, 'known-goal-success');
+      }
+      if (goalRecord.status === 'blocked' || goalRecord.status === 'error') {
+        signals.push('known-goal-risk');
+        bump('dream', 10, 'known-goal-risk');
+        bump('reason', 6, 'known-goal-risk');
+      }
     }
     for (const tool of base) {
       const sig = `${tool}|${objective}|${text}`;
@@ -422,12 +444,17 @@ class Agent {
       if (failure) {
         failureHits.push({ tool, error: failure.error, attempt: failure.attempt });
         signals.push('recent-failure');
-        scores.set(tool, (scores.get(tool) || 0) - 20);
+        bump(tool, -35, 'recent-failure');
       }
     }
-    const ordered = [...scores.entries()]
+    const toolScores = [...scores.entries()]
       .sort((a, b) => b[1] - a[1])
-      .map(([tool]) => tool);
+      .map(([tool, score]) => ({
+        tool,
+        score,
+        reasons: scoreReasons.get(tool) || [],
+      }));
+    const ordered = toolScores.map(item => item.tool);
     for (const tool of base) {
       if (!ordered.includes(tool)) ordered.push(tool);
     }
@@ -437,10 +464,13 @@ class Agent {
       baseTools: base,
       signals,
       failureHits,
+      toolScores,
       rationale: signals.includes('manipulation')
         ? 'Risk-aware policy boosted verify and reason first.'
         : signals.includes('recent-failure')
           ? 'Recent failure history reduced repeated tool choices.'
+        : signals.includes('tool-health-risk')
+          ? 'Tool health history reduced unreliable choices.'
         : goalRecord
           ? 'Known goal found in memory, so the planner keeps a slightly stronger ask/verify mix.'
           : 'Default tool policy selected by objective.',
@@ -551,26 +581,20 @@ class Agent {
   }
 
   _buildRunRecommendations(state) {
-    const recommendations = [];
+    const recommendations = new Set();
     const lastStep = state.steps[state.steps.length - 1] || null;
     const blocked = state.status === 'blocked' || lastStep?.status === 'blocked';
     const stalledCount = Number(state.progress?.stalledCount || 0);
+    const policySignals = Array.isArray(state.plan?.policy?.signals) ? state.plan.policy.signals : [];
 
-    if (blocked) {
-      recommendations.push('Sadece izinli tool setiyle devam et.');
-    }
-    if (stalledCount >= 2) {
-      recommendations.push('Aynı sonuç tekrar ediyorsa hedefi yeniden ifade et veya daha fazla bağlam ekle.');
-    }
-    if (state.objective === 'verify') {
-      recommendations.push('Doğrulama için önce ask ile bağlamı netleştir, sonra verify çalıştır.');
-    }
-    if (state.objective === 'reason') {
-      recommendations.push('Sebep zinciri zayıfsa ilgili ara düğümleri öğren veya örnek kanıt ekle.');
-    }
-    if (!recommendations.length) {
-      recommendations.push('Mevcut akış yeterli; hedefi küçük parçalara bölerek devam edebilirsin.');
-    }
+    if (blocked) recommendations.add('Sadece izinli tool setiyle devam et ve istegi daralt.');
+    if (state.status === 'paused') recommendations.add('Hedefi degistirmeden once checkpoint uzerinden devam et.');
+    if (stalledCount >= 2) recommendations.add('Ayni toolu tekrar etmeden once hedefi yeniden ifade et veya baglam ekle.');
+    if (policySignals.includes('recent-failure')) recommendations.add('Yakin gecmiste hata veren tool imzasini tekrar etme; ask veya dream fallback kullan.');
+    if (policySignals.includes('tool-health-risk')) recommendations.add('Zayif tool yolunu tekrar denemeden once hedefi daralt.');
+    if (state.objective === 'verify') recommendations.add('Once ask ile baglam topla, sonra odakli ifadeyi verify ile denetle.');
+    if (state.objective === 'reason') recommendations.add('Sebep ve kanit zincirini ara olgularla guclendir.');
+    if (!recommendations.size) recommendations.add('Secili tool karisimi ile devam et.');
 
     const toolHealth = Object.entries(this.memory?.stats?.tools || {})
       .map(([tool, stat]) => ({
@@ -584,7 +608,7 @@ class Agent {
       .slice(0, 3);
 
     return {
-      items: recommendations,
+      items: [...recommendations],
       toolHealth,
     };
   }
@@ -593,6 +617,9 @@ class Agent {
     const lastStep = state.steps[state.steps.length - 1] || null;
     const blocked = state.status === 'blocked' || lastStep?.status === 'blocked';
     const stalledCount = Number(state.progress?.stalledCount || 0);
+    const selectedTools = Array.isArray(state.selectedTools) ? state.selectedTools : [];
+    const completedActions = new Set((state.steps || []).map(step => step.action));
+    const lastPolicy = lastStep?.policy || null;
 
     if (blocked) {
       return {
@@ -608,11 +635,39 @@ class Agent {
         reason: 'Progress stalled; reframe the target or add new context.',
       };
     }
-    if (state.objective === 'verify') {
+    if (state.status === 'paused') {
       return {
-        action: 'verify',
-        tool: 'verify',
-        reason: 'Verify objective benefits from a focused follow-up check.',
+        action: 'resume',
+        tool: selectedTools[0] || 'ask',
+        reason: 'Run paused before completion; continue from the checkpoint.',
+      };
+    }
+    if (lastPolicy && lastPolicy.category === 'external' && lastPolicy.action === 'review') {
+      return {
+        action: 'approval',
+        tool: lastStep.tool,
+        reason: 'External tool request is waiting for approval before execution.',
+      };
+    }
+    if (lastStep && lastStep.result && lastStep.result.ok === false) {
+      return {
+        action: 'fallback',
+        tool: selectedTools.includes('dream') ? 'dream' : 'ask',
+        reason: 'Last step failed; switch to the safest available fallback.',
+      };
+    }
+    if (state.objective === 'verify') {
+      if (!completedActions.has('verify')) {
+        return {
+          action: 'verify',
+          tool: 'verify',
+          reason: 'Verification has not run yet for this objective.',
+        };
+      }
+      return {
+        action: 'explain',
+        tool: selectedTools.includes('reason') ? 'reason' : 'ask',
+        reason: 'Verification ran; explain the result or gather missing context.',
       };
     }
     if (state.objective === 'reason') {
@@ -624,7 +679,7 @@ class Agent {
     }
     return {
       action: 'continue',
-      tool: state.selectedTools?.[0] || 'ask',
+      tool: selectedTools[0] || 'ask',
       reason: 'Current flow is healthy; continue with the selected tool mix.',
     };
   }
@@ -930,9 +985,9 @@ class Agent {
     state.finalAnswer = finalAnswer;
     state.completedSteps = state.steps.length;
     state.remainingSteps = queued.length;
-    state.report = this._renderReport(state);
     state.recommendations = this._buildRunRecommendations(state);
     state.nextAction = this._suggestNextAction(state);
+    state.report = this._renderReport(state);
     state.memory = {
       path: this.memoryPath,
       goals: this.memory.goals.length,
@@ -965,6 +1020,8 @@ class Agent {
     });
     const recommendations = this._buildRunRecommendations(state);
     const recommendationLines = recommendations.items.map(item => `- ${item}`);
+    const nextAction = state.nextAction || this._suggestNextAction(state);
+    const nextActionLine = `${nextAction.action} -> ${nextAction.tool}: ${nextAction.reason}`;
     const toolHealthLines = recommendations.toolHealth.length
       ? recommendations.toolHealth.map(item => `- ${item.tool}: success=${item.success}, blocked=${item.blocked}, error=${item.error}`)
       : ['- henüz kullanım verisi yok'];
@@ -974,6 +1031,7 @@ class Agent {
       `Durum: ${state.status}`,
       `Adım sayısı: ${state.completedSteps}`,
       `İlerleme: ${(state.progress && typeof state.progress.stalledCount === 'number') ? `stalled=${state.progress.stalledCount}` : 'unknown'}`,
+      `Sonraki adim: ${nextActionLine}`,
       'Öneri:',
       ...recommendationLines,
       'Araç sağlığı:',

@@ -320,9 +320,9 @@ class AgentV3 {
     state.finalAnswer = finalSummary.text || 'Agent completed but no short summary could be produced.';
     state.completedSteps = state.steps.length;
     state.remainingSteps = queued.length;
-    state.report = this._renderReport(state);
     state.recommendations = this.baseAgent._buildRunRecommendations(state);
     state.nextAction = this.baseAgent._suggestNextAction(state);
+    state.report = this._renderReport(state);
     state.memory = {
       path: this.storage.dbPath,
       goalMemory: this.storage.getGoalMemory(goal),
