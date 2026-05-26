@@ -2,9 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const Dream = require('./dream');
+const { INTERNAL_TOOLS, evaluateToolPolicy } = require('./toolPolicy');
 
 const DEFAULT_MAX_STEPS = 4;
-const ALLOWED_TOOLS = new Set(['learn', 'ask', 'verify', 'reason', 'compare', 'dream']);
+const ALLOWED_TOOLS = INTERNAL_TOOLS;
 const MEMORY_LIMITS = {
   plans: 24,
   runs: 32,
@@ -598,6 +599,20 @@ class Agent {
     };
   }
 
+  inspectToolPolicy(tool, input = '', context = {}) {
+    const policy = evaluateToolPolicy({
+      tool,
+      input,
+      context,
+      internalTools: ALLOWED_TOOLS,
+    });
+    return this._ok('policy', policy, [], {
+      tool: policy.tool,
+      category: policy.category,
+      action: policy.action,
+    });
+  }
+
   _chooseFollowUp(step, summary, state) {
     if (step.action === 'verify') {
       if (summary.status === 'bilinmiyor') return { action: 'dream', tool: 'dream', input: {} };
@@ -647,49 +662,78 @@ class Agent {
   _executeStep(step, state, opts = {}) {
     this._emit('beforeTask', { step, state, opts });
     let result;
+    const toolPolicy = evaluateToolPolicy({
+      tool: step.tool,
+      input: step.input,
+      context: {
+        goal: state.goal,
+        objective: state.objective,
+        action: step.action,
+      },
+      internalTools: ALLOWED_TOOLS,
+    });
 
-    switch (step.tool) {
-      case 'learn':
-        result = this.kernel.learn(step.input, opts.learnOpts || {});
-        break;
-      case 'ask':
-        result = this.kernel.ask(step.input, opts.askOpts || {});
-        break;
-      case 'verify':
-        result = this.kernel.verify(step.input, opts.verifyOpts || {});
-        break;
-      case 'reason':
-        result = this.kernel.reason(stripQuestionMarks(step.input || state.goal), opts.reasonOpts || {});
-        break;
-      case 'compare': {
-        const text = String(step.input || state.goal);
-        const parts = text.split('|').map(s => s.trim()).filter(Boolean);
-        if (parts.length >= 2) {
-          result = this.kernel.compare(parts[0], parts[1], opts.compareOpts || {});
-        } else {
-          result = this.kernel.compare(firstWords(text, 2), firstWords(text.split(/\s+/).slice(2).join(' '), 2), opts.compareOpts || {});
+    if (toolPolicy.category !== 'internal') {
+      const code = toolPolicy.blocked ? 'EXTERNAL_TOOL_BLOCKED' : 'EXTERNAL_TOOL_REVIEW_REQUIRED';
+      result = {
+        ok: false,
+        type: 'agent',
+        data: null,
+        evidence: [],
+        error: {
+          code,
+          message: toolPolicy.reasons[0] || `External tool ${toolPolicy.action} required.`,
+        },
+        meta: {
+          blocked: true,
+          allowedTools: [...ALLOWED_TOOLS],
+          policy: toolPolicy,
+        },
+      };
+    } else {
+      switch (step.tool) {
+        case 'learn':
+          result = this.kernel.learn(step.input, opts.learnOpts || {});
+          break;
+        case 'ask':
+          result = this.kernel.ask(step.input, opts.askOpts || {});
+          break;
+        case 'verify':
+          result = this.kernel.verify(step.input, opts.verifyOpts || {});
+          break;
+        case 'reason':
+          result = this.kernel.reason(stripQuestionMarks(step.input || state.goal), opts.reasonOpts || {});
+          break;
+        case 'compare': {
+          const text = String(step.input || state.goal);
+          const parts = text.split('|').map(s => s.trim()).filter(Boolean);
+          if (parts.length >= 2) {
+            result = this.kernel.compare(parts[0], parts[1], opts.compareOpts || {});
+          } else {
+            result = this.kernel.compare(firstWords(text, 2), firstWords(text.split(/\s+/).slice(2).join(' '), 2), opts.compareOpts || {});
+          }
+          break;
         }
-        break;
+        case 'dream':
+          result = this.dream ? this.dream.dream(opts.dreamOpts || {}) : this.kernel.dream(opts.dreamOpts || {});
+          break;
+        default:
+          result = {
+            ok: false,
+            type: 'agent',
+            data: null,
+            evidence: [],
+            error: {
+              code: 'UNSUPPORTED_TOOL',
+              message: `Unsupported tool: ${String(step.tool || 'unknown')}`,
+            },
+            meta: {
+              blocked: true,
+              allowedTools: [...ALLOWED_TOOLS],
+            },
+          };
+          break;
       }
-      case 'dream':
-        result = this.dream ? this.dream.dream(opts.dreamOpts || {}) : this.kernel.dream(opts.dreamOpts || {});
-        break;
-      default:
-        result = {
-          ok: false,
-          type: 'agent',
-          data: null,
-          evidence: [],
-          error: {
-            code: 'UNSUPPORTED_TOOL',
-            message: `Unsupported tool: ${String(step.tool || 'unknown')}`,
-          },
-          meta: {
-            blocked: true,
-            allowedTools: [...ALLOWED_TOOLS],
-          },
-        };
-        break;
     }
 
     const summary = this._extractAgentSummary(result);
@@ -703,6 +747,7 @@ class Agent {
       status: blocked ? 'blocked' : (result?.ok === false ? 'error' : 'done'),
       summary: summary.text || '',
       result,
+      policy: toolPolicy,
     };
     this._emit('afterTask', { step: stepReport, state, opts });
     return stepReport;

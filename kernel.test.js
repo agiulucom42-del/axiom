@@ -84,6 +84,25 @@ describe('Kernel - Çıkarım', () => {
     assert.ok(cevap !== 'Bilmiyorum');
     assert.ok(cevap.includes('hayvan'));
   });
+
+  it('verify: explicit negation conflicts with known fact', () => {
+    const k = freshKernel();
+    k.learn('Kedi hayvandır');
+    const result = k.verify('Kedi hayvan değildir');
+    assert.strictEqual(result.data.status, 'celiski');
+    assert.ok(result.evidence.length > 0);
+  });
+
+  it('verify: direct numeric comparisons are evaluated before partial matches', () => {
+    const k = freshKernel();
+    const trueComparison = k.verify('9 != 8');
+    const falseComparison = k.verify('9 = 8');
+
+    assert.strictEqual(trueComparison.data.status, 'dogrulandi');
+    assert.ok(trueComparison.evidence.length > 0);
+    assert.strictEqual(falseComparison.data.status, 'celiski');
+    assert.ok(falseComparison.evidence.length > 0);
+  });
 });
 
 describe('Kernel - Bağlam Duyarlı Benzerlik', () => {

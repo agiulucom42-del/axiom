@@ -768,6 +768,54 @@ if (verbSuffix.test(predicate)) {
     }, evidence);
   }
 
+  _parseNumericComparison(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return null;
+
+    const match = raw.match(/^\s*(-?\d+(?:[.,]\d+)?)\s*(==|=|!=|<>|≠|<=|>=|<|>)\s*(-?\d+(?:[.,]\d+)?)\s*$/);
+    if (!match) return null;
+
+    const left = Number(String(match[1]).replace(',', '.'));
+    const operator = match[2];
+    const right = Number(String(match[3]).replace(',', '.'));
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
+
+    let ok = false;
+    switch (operator) {
+      case '=':
+      case '==':
+        ok = left === right;
+        break;
+      case '!=':
+      case '<>':
+      case '≠':
+        ok = left !== right;
+        break;
+      case '<':
+        ok = left < right;
+        break;
+      case '>':
+        ok = left > right;
+        break;
+      case '<=':
+        ok = left <= right;
+        break;
+      case '>=':
+        ok = left >= right;
+        break;
+      default:
+        return null;
+    }
+
+    return {
+      ok,
+      left,
+      operator,
+      right,
+      text: raw,
+    };
+  }
+
   _forwardChain(id, chain, visited, depth) {
     if (depth <= 0 || visited.has(id)) return chain;
     visited.add(id);
@@ -933,6 +981,20 @@ if (verbSuffix.test(predicate)) {
    * "kedi bal?k yer" ? ?zne=kedi, nesne=bal?k yer ? kenar var m??
    */
   verify(statement) {
+    const numericComparison = this._parseNumericComparison(statement);
+    if (numericComparison) {
+      return this._ok('verify', {
+        status: numericComparison.ok ? 'dogrulandi' : 'celiski',
+        confidence: 0.98,
+      }, [{
+        kind: numericComparison.ok ? 'direct_edge' : 'contradiction',
+        text: `Sayısal karşılaştırma: "${numericComparison.left} ${numericComparison.operator} ${numericComparison.right}"`,
+        confidence: 0.98,
+        nodes: [String(numericComparison.left), String(numericComparison.right)],
+        edges: [],
+      }]);
+    }
+
     const parts = statement.toLowerCase().trim().split(/\s+/).filter(Boolean);
     if (parts.length < 2) {
       return this._ok('verify', { status: 'bilinmiyor', confidence: 0 }, []);
@@ -946,6 +1008,39 @@ if (verbSuffix.test(predicate)) {
 
     const edges = this.graph.getEdges(subject);
     const predicate = parts.slice(1).join(' ');
+
+    const predicateNumericComparison = this._parseNumericComparison(predicate);
+    if (predicateNumericComparison) {
+      return this._ok('verify', {
+        status: predicateNumericComparison.ok ? 'dogrulandi' : 'celiski',
+        confidence: 0.95,
+      }, [{
+        kind: predicateNumericComparison.ok ? 'direct_edge' : 'contradiction',
+        text: `Sayısal karşılaştırma: "${predicateNumericComparison.left} ${predicateNumericComparison.operator} ${predicateNumericComparison.right}"`,
+        confidence: 0.95,
+        nodes: [subject, String(predicateNumericComparison.left), String(predicateNumericComparison.right)],
+        edges: [],
+      }]);
+    }
+
+    const negMatch = predicate.match(/^(.*?)\s+(de[ğg]il|de[ğg]ildir|not)\s*$/i);
+    if (negMatch) {
+      const positive = negMatch[1].trim();
+      if (positive) {
+        const posNorm = this.normalizeWord(positive);
+        const posEdge = edges.find(e => e.to === posNorm || e.to.includes(posNorm));
+        if (posEdge) {
+          return this._ok('verify', { status: 'celiski', confidence: 0.85 }, [{
+            kind: 'contradiction',
+            text: `${subject} --[${posEdge.relation}]--> ${posEdge.to} var ama ifade olumsuz: "${predicate}"`,
+            confidence: 0.85,
+            nodes: [subject, posEdge.to],
+            edges: [{ from: subject, to: posEdge.to, relation: posEdge.relation }],
+          }]);
+        }
+      }
+    }
+
     const directEdge = edges.find(e => predicate.includes(e.to) || e.to === predicate);
     if (directEdge) {
       const confidence = Math.min(0.95, (directEdge.confidence ?? directEdge.weight ?? 0.5) + 0.4);
@@ -966,6 +1061,29 @@ if (verbSuffix.test(predicate)) {
       const foundPath = this._findPath(subject, target, new Set(), [], 4);
       if (foundPath) {
         return this._ok('verify', { status: 'dogrulandi', confidence: 0.5 }, [this._pathEvidence(foundPath, 'path', 0.5)]);
+      }
+    }
+
+    const stmtNums = predicate.match(/\d+/g);
+    if (stmtNums && edges.length > 0) {
+      for (const edge of edges) {
+        const edgeNums = String(edge.to).match(/\d+/g);
+        if (edgeNums) {
+          const mismatch = stmtNums.some((n, i) => edgeNums[i] && n !== edgeNums[i]);
+          if (mismatch) {
+            const stmtWords = parts.slice(1).filter(p => !/^\d+$/.test(p) && p.length > 1);
+            const hasTextOverlap = stmtWords.some(w => edge.to.includes(w));
+            if (hasTextOverlap) {
+              return this._ok('verify', { status: 'celiski', confidence: 0.75 }, [{
+                kind: 'contradiction',
+                text: `Sayısal çelişki: "${predicate}" ifadesinde ${stmtNums.join(',')} ama "${edge.to}" bilgisinde ${edgeNums.join(',')}`,
+                confidence: 0.75,
+                nodes: [subject, edge.to],
+                edges: [{ from: subject, to: edge.to, relation: edge.relation }],
+              }]);
+            }
+          }
+        }
       }
     }
 

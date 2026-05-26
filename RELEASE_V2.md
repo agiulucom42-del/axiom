@@ -13,7 +13,7 @@
 
 ## Current verification
 
-- Test suite: `177/177`
+- Test suite: `207/207`
 - Benchmark runner: `npm run bench`
 - Main branch: pushed and synchronized
 
@@ -42,7 +42,7 @@ npm run bench -- --quick
 
 ## Next phase priorities
 
-1. Finish the stronger v3 agent loop and tool policy layer.
+1. Finish the stronger v3 agent loop and workflow layer.
 2. Harden security and request handling for public-facing usage.
 3. Add operational packaging such as Docker, CI, and backup/restore.
 4. Expand evidence quality for multi-hop reasoning and real workloads.

@@ -216,6 +216,28 @@ describe('Agent', () => {
     assert.strictEqual(runResult.data.nextAction.action, 'revise');
   });
 
+  it('classifies external tool requests with a review-or-block policy', () => {
+    const agent = freshAgent();
+
+    const review = agent.inspectToolPolicy('browser.open', 'open the docs', { goal: 'open docs safely' });
+    assert.strictEqual(review.ok, true);
+    assert.strictEqual(review.type, 'policy');
+    assert.strictEqual(review.data.category, 'external');
+    assert.strictEqual(review.data.action, 'review');
+    assert.strictEqual(review.data.blocked, false);
+    assert.strictEqual(review.data.requiresApproval, true);
+    assert.ok(review.data.labels.includes('external-tool'));
+
+    const block = agent.inspectToolPolicy('shell', 'rm -rf /', { goal: 'delete everything' });
+    assert.strictEqual(block.ok, true);
+    assert.strictEqual(block.type, 'policy');
+    assert.strictEqual(block.data.category, 'external');
+    assert.strictEqual(block.data.action, 'block');
+    assert.strictEqual(block.data.blocked, true);
+    assert.ok(block.data.labels.includes('blocked'));
+    assert.ok(block.data.reasons.some(reason => /destructive/i.test(reason)));
+  });
+
   it('switches to dream when progress stalls across successful steps', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'axiom-agent-stall-'));
     const memoryPath = path.join(tmpDir, 'agent.memory.json');

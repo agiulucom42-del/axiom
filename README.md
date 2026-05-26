@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node-%3E%3D18-brightgreen)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/Tests-178%2F178-green)]()
+[![Tests](https://img.shields.io/badge/Tests-207%2F207-green)]()
 [![Dependencies](https://img.shields.io/badge/Dependencies-0-blue)]()
 [![Platform](https://img.shields.io/badge/Platform-Windows%20|%20macOS%20|%20Linux-lightgrey)]()
 
@@ -200,7 +200,7 @@ AXIOM has a lightweight agent layer, persistent goal memory, a retry-aware LLM a
 - `ajan: hedef` runs the multi-step agent loop and returns a report.
 - The planner now keeps a small local memory file, remembers previous goals, avoids repeating recent failures, and biases tool selection with a simple policy layer.
 - It also detects stalled progress and can switch to hypothesis mode when repeated steps stop producing new signal.
-- What is still missing for a stronger agent story: richer autonomous loops, external tool policies, and a longer-running workflow layer.
+- What is still missing for a stronger agent story: richer autonomous loops and a longer-running workflow layer.
 
 ## MCP Adapter
 
@@ -222,7 +222,7 @@ The adapter returns both human-readable `content` and structured MCP `structured
 
 Set `AXIOM_KERNEL_VERSION=v2` to expose the newer `KernelV2.verify` behavior through MCP. The `axiom.verify` output schema includes v2.1 fields such as `inferred`, `reasoningPath`, `pathLength`, `confidenceSource`, and `contradictionReason`.
 
-The MCP tool catalog is now described with concrete payload shapes for `learn`, `ask`, `reason`, `compare`, `dream`, and `verify`, so external clients can wire against the schema instead of guessing the response shape.
+The MCP tool catalog is now described with concrete payload shapes for `learn`, `ask`, `reason`, `compare`, `dream`, `verify`, `plan`, `agent`, and `policy`, so external clients can wire against the schema instead of guessing the response shape.
 
 The same flag also enables `KernelV2` for CLI and REST flows:
 
@@ -262,13 +262,13 @@ For the current v2 shipping status and next-phase priorities, see [RELEASE_V2.md
 - v2.8 Status Dashboard Polish: done
 - v2.9 Evidence Polish: done
 - v3.0 Agent Workflow: in progress
-- Test status: `177/177`
+- Test status: `207/207`
 
 ## Current Remaining Work
 
 The next practical work is captured in [NEXT_STEPS.md](./NEXT_STEPS.md). In short:
 
-- finish the stronger agent loop and policy layer
+- finish the stronger agent loop and workflow layer
 - harden security and request handling
 - add basic operational packaging such as Docker and CI
 - keep language packs lightweight and only expand where they create clear user value

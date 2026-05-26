@@ -13,7 +13,7 @@ This file keeps the remaining work honest after the v2 core is complete.
 - improve tool selection policy
 - support longer-running plan and resume flows
 - make agent reports more useful for real tasks
-- add guardrails for external tool execution
+- add guardrails for external tool execution and approval
 
 ## 2. Security and Request Handling
 

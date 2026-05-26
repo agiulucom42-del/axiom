@@ -313,6 +313,27 @@ const AGENT_RUN_SCHEMA = {
   additionalProperties: true,
 };
 
+const TOOL_POLICY_SCHEMA = {
+  type: 'object',
+  properties: {
+    tool: { type: 'string' },
+    input: { type: 'string' },
+    category: { type: 'string', enum: ['internal', 'external'] },
+    action: { type: 'string', enum: ['allow', 'review', 'block'] },
+    blocked: { type: 'boolean' },
+    requiresApproval: { type: 'boolean' },
+    review: { type: 'boolean' },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    labels: { type: 'array', items: { type: 'string' } },
+    reasons: { type: 'array', items: { type: 'string' } },
+    suggestedNextStep: { type: 'string' },
+    source: { type: 'string' },
+    context: { type: 'object' },
+  },
+  required: ['tool', 'category', 'action', 'blocked', 'requiresApproval', 'labels', 'reasons'],
+  additionalProperties: true,
+};
+
 const VERIFY_DATA_SCHEMA = {
   type: 'object',
   properties: {
@@ -449,6 +470,23 @@ const TOOL_SCHEMAS = [
       additionalProperties: false,
     },
     outputSchema: buildEnvelopeSchema(AGENT_RUN_SCHEMA),
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'axiom.policy',
+    title: 'Axiom Tool Policy',
+    description: 'Inspect whether a requested tool is internal, review-only, or blocked, and return a safe execution policy summary.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tool: { type: 'string', description: 'Tool name to inspect, for example: "browser.open" or "shell".' },
+        input: { type: 'string', description: 'Optional tool input or command text.' },
+        goal: { type: 'string', description: 'Optional higher-level goal for context.' },
+      },
+      required: ['tool'],
+      additionalProperties: false,
+    },
+    outputSchema: buildEnvelopeSchema(TOOL_POLICY_SCHEMA),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
@@ -593,6 +631,10 @@ function callTool(kernel, params = {}) {
       return agent.plan(args.goal, { maxSteps: args.maxSteps });
     case 'axiom.agent':
       return agent.run(args.goal, { maxSteps: args.maxSteps });
+    case 'axiom.policy':
+      return agent.inspectToolPolicy(args.tool, args.input || '', {
+        goal: args.goal,
+      });
     case 'axiom.reason':
       return kernel.reason(args.subject);
     case 'axiom.compare':
