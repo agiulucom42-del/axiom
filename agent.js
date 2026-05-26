@@ -636,11 +636,47 @@ class Agent {
       context,
       internalTools: ALLOWED_TOOLS,
     });
+    const approval = this._queueToolApproval(policy, input, context);
+    policy.approvalId = approval ? approval.id : null;
+    policy.approvalStatus = approval ? approval.status : null;
     return this._ok('policy', policy, [], {
       tool: policy.tool,
       category: policy.category,
       action: policy.action,
+      approvalId: approval ? approval.id : null,
+      approvalStatus: approval ? approval.status : null,
     });
+  }
+
+  _queueToolApproval(policy, input, context = {}) {
+    if (!this.storage || typeof this.storage.saveToolApproval !== 'function') return null;
+    if (!policy || policy.category !== 'external') return null;
+    const status = policy.action === 'review' ? 'pending' : 'blocked';
+    const decision = policy.action === 'review' ? '' : 'blocked';
+    const reason = Array.isArray(policy.reasons) ? policy.reasons[0] || '' : '';
+    try {
+      return this.storage.saveToolApproval({
+        tool: policy.tool,
+        input,
+        context,
+        policy,
+        status,
+        decision,
+        reason,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  listPendingToolApprovals(limit = 20) {
+    if (!this.storage || typeof this.storage.listPendingToolApprovals !== 'function') return [];
+    return this.storage.listPendingToolApprovals(limit);
+  }
+
+  countPendingToolApprovals() {
+    if (!this.storage || typeof this.storage.countPendingToolApprovals !== 'function') return 0;
+    return this.storage.countPendingToolApprovals();
   }
 
   _chooseFollowUp(step, summary, state) {

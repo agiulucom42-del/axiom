@@ -72,17 +72,18 @@ before(async () => {
   BASE = `http://127.0.0.1:${PORT}`;
 });
 
-after(() => {
+after(async () => {
   server.closeAllConnections?.();
   server.closeIdleConnections?.();
   server.closeAxiom?.();
-  server.close(() => {});
+  await new Promise(resolve => server.close(() => resolve()));
   server.closeAllConnections?.();
   server.closeIdleConnections?.();
   delete process.env.AXIOM_MEMORY_PATH;
   delete process.env.AXIOM_DB_PATH;
   delete process.env.AXIOM_KERNEL_VERSION;
   delete process.env.AXIOM_DISABLE_AUTO_LISTEN;
+  await new Promise(resolve => setTimeout(resolve, 25));
   if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -324,6 +325,7 @@ describe('Server - API', () => {
     assert.strictEqual(j.agentRuntime, 'v2');
     assert.strictEqual(j.checkpointBackend, 'json');
     assert.strictEqual(typeof j.agentCheckpointPath, 'string');
+    assert.strictEqual(j.agentV3Status, null);
     assert.strictEqual(j.activeKernel, 'v2');
   assert.match(j.testStatus, /^\d+\/\d+$/);
     assert.ok(['sqlite', 'json'].includes(j.backend));

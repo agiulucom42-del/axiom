@@ -336,8 +336,40 @@ const TOOL_POLICY_SCHEMA = {
     suggestedNextStep: { type: 'string' },
     source: { type: 'string' },
     context: { type: 'object' },
+    approvalId: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    approvalStatus: { anyOf: [{ type: 'string' }, { type: 'null' }] },
   },
   required: ['tool', 'category', 'action', 'approval', 'blocked', 'requiresApproval', 'labels', 'reasons'],
+  additionalProperties: true,
+};
+
+const TOOL_APPROVAL_SCHEMA = {
+  type: 'object',
+  properties: {
+    pendingCount: { type: 'integer', minimum: 0 },
+    approvals: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          approvalKey: { type: 'string' },
+          tool: { type: 'string' },
+          input: { type: 'string' },
+          status: { type: 'string' },
+          decision: { type: 'string' },
+          reason: { type: 'string' },
+          createdAt: { type: 'integer' },
+          updatedAt: { type: 'integer' },
+          policy: { type: 'object' },
+          context: { type: 'object' },
+        },
+        required: ['id', 'approvalKey', 'tool', 'status', 'decision', 'reason', 'createdAt', 'updatedAt'],
+        additionalProperties: true,
+      },
+    },
+  },
+  required: ['pendingCount', 'approvals'],
   additionalProperties: true,
 };
 
@@ -497,6 +529,20 @@ const TOOL_SCHEMAS = [
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
+    name: 'axiom.approvals',
+    title: 'Axiom Approval Queue',
+    description: 'List pending tool approvals and review queue items that were created by the tool policy layer.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 50, description: 'Maximum number of approval entries to return.' },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: buildEnvelopeSchema(TOOL_APPROVAL_SCHEMA),
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
     name: 'axiom.reason',
     title: 'Axiom Reason',
     description: 'Return forward and backward reasoning traces for a subject with stable evidence references and cycle detection.',
@@ -645,6 +691,23 @@ function callTool(kernel, params = {}) {
       return agent.inspectToolPolicy(args.tool, args.input || '', {
         goal: args.goal,
       });
+    case 'axiom.approvals':
+      return {
+        pendingCount: agent.countPendingToolApprovals ? agent.countPendingToolApprovals() : 0,
+        approvals: (agent.listPendingToolApprovals ? agent.listPendingToolApprovals(args.limit || 20) : []).map(item => ({
+          id: item.id,
+          approvalKey: item.approval_key || item.approvalKey || '',
+          tool: item.tool,
+          input: item.input || '',
+          status: item.status || 'pending',
+          decision: item.decision || '',
+          reason: item.reason || '',
+          createdAt: Number(item.created_at || 0),
+          updatedAt: Number(item.updated_at || 0),
+          policy: item.policy || {},
+          context: item.context || {},
+        })),
+      };
     case 'axiom.reason':
       return kernel.reason(args.subject);
     case 'axiom.compare':

@@ -578,6 +578,7 @@ function renderStatus(d) {
     '<div class="metric"><div class="label">Sürüm</div><div class="value">' + escapeHtml(d.version || '?') + '</div><div class="sub">Contract: ' + escapeHtml(d.contractVersion || '?') + '</div></div>' +
     '<div class="metric"><div class="label">Kernel</div><div class="value">' + escapeHtml(d.activeKernel || '?') + '</div><div class="sub">Backend: ' + escapeHtml(d.backend || '?') + ' · ' + d.nodes + ' node / ' + d.edges + ' edge</div></div>' +
     (agentV3 ? '<div class="metric"><div class="label">Agent V3</div><div class="value">' + agentV3.goals + ' hedef</div><div class="sub">' + agentV3.runs + ' çalışma · ' + agentV3.checkpoints + ' kontrol noktası</div></div>' : '') +
+    (agentV3 && Number.isInteger(agentV3.pendingApprovals) ? '<div class="metric"><div class="label">Approval Queue</div><div class="value">' + agentV3.pendingApprovals + '</div><div class="sub">Bekleyen tool onayları</div></div>' : '') +
     (lastPlan ? '<div class="metric"><div class="label">Son Plan</div><div class="value">' + escapeHtml(lastPlan.goal || '?') + '</div><div class="sub">' + escapeHtml(String(lastPlan.steps || 0)) + ' adım</div></div>' : '') +
     (lastRun ? '<div class="metric"><div class="label">Son Çalışma</div><div class="value">' + escapeHtml(lastRun.status || '?') + '</div><div class="sub">' + escapeHtml(lastRun.goal || '?') + ' · ' + escapeHtml(String(lastRun.completedSteps || 0)) + ' adım</div></div>' : '') +
     '<div class="metric"><div class="label">Test</div><div class="value">' + escapeHtml(d.testStatus || '?') + '</div><div class="sub">Son commit: ' + escapeHtml(d.lastCommit || '?') + '</div></div>' +
@@ -1023,6 +1024,12 @@ if (require.main === module && process.env.AXIOM_DISABLE_AUTO_LISTEN !== '1') {
 }
 
 server.closeAxiom = () => {
+  if (cli.agent?.baseAgent?.storage && typeof cli.agent.baseAgent.storage.close === 'function') {
+    try { cli.agent.baseAgent.storage.close(); } catch (_) {}
+  }
+  if (cli.agent?.storage && typeof cli.agent.storage.close === 'function') {
+    try { cli.agent.storage.close(); } catch (_) {}
+  }
   cli.kernel.graph.close();
 };
 

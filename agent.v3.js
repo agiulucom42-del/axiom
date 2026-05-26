@@ -375,11 +375,24 @@ class AgentV3 {
     const goals = this.storage ? this.storage.countGoals() : 0;
     const checkpoints = this.storage ? this.storage.countCheckpoints() : 0;
     const runs = this.storage ? this.storage.countRuns() : 0;
+    const pendingApprovals = this.storage && typeof this.storage.countPendingToolApprovals === 'function'
+      ? this.storage.countPendingToolApprovals()
+      : 0;
+    const recentApprovals = this.storage && typeof this.storage.listPendingToolApprovals === 'function'
+      ? this.storage.listPendingToolApprovals(5).map(item => ({
+          id: item.id,
+          tool: item.tool,
+          status: item.status,
+          approvalKey: item.approval_key || item.approvalKey || null,
+        }))
+      : [];
     return {
       agent: 'v3',
       goals,
       checkpoints,
       runs,
+      pendingApprovals,
+      recentApprovals,
       lastPlan: this.lastPlan
         ? { goal: this.lastPlan.goal, steps: this.lastPlan.steps.length }
         : null,

@@ -86,6 +86,7 @@ describe('MCP Server', () => {
     const planTool = list.result.tools.find(t => t.name === 'axiom.plan');
     const agentTool = list.result.tools.find(t => t.name === 'axiom.agent');
     const policyTool = list.result.tools.find(t => t.name === 'axiom.policy');
+    const approvalsTool = list.result.tools.find(t => t.name === 'axiom.approvals');
     assert.ok(learnTool);
     assert.ok(askTool);
     assert.ok(reasonTool);
@@ -94,6 +95,7 @@ describe('MCP Server', () => {
     assert.ok(planTool);
     assert.ok(agentTool);
     assert.ok(policyTool);
+    assert.ok(approvalsTool);
     assert.ok(verifyTool);
     assert.ok(verifyTool.outputSchema);
     assert.match(verifyTool.description, /structured evidence trail/i);
@@ -129,6 +131,10 @@ describe('MCP Server', () => {
     assert.ok(policyTool.outputSchema.properties.data.anyOf[1].properties.action);
     assert.ok(policyTool.outputSchema.properties.data.anyOf[1].properties.category);
     assert.ok(policyTool.outputSchema.properties.data.anyOf[1].properties.reasons);
+    assert.ok(policyTool.outputSchema.properties.data.anyOf[1].properties.approvalId);
+    assert.ok(policyTool.outputSchema.properties.data.anyOf[1].properties.approvalStatus);
+    assert.ok(approvalsTool.outputSchema.properties.data.anyOf[1].properties.pendingCount);
+    assert.ok(approvalsTool.outputSchema.properties.data.anyOf[1].properties.approvals);
   });
 
   it('can learn and ask through tools/call', async () => {
@@ -217,6 +223,17 @@ describe('MCP Server', () => {
     assert.ok(policy.result.structuredContent.data.riskScore > 0);
     assert.ok(Array.isArray(policy.result.structuredContent.data.labels));
     assert.ok(policy.result.structuredContent.data.reasons.length >= 1);
+    assert.ok(policy.result.structuredContent.data.approvalId);
+    assert.strictEqual(policy.result.structuredContent.data.approvalStatus, 'pending');
+
+    const approvals = await request('tools/call', {
+      name: 'axiom.approvals',
+      arguments: { limit: 10 },
+    });
+    assert.strictEqual(approvals.result.isError, false);
+    assert.strictEqual(approvals.result.structuredContent.pendingCount >= 1, true);
+    assert.ok(Array.isArray(approvals.result.structuredContent.approvals));
+    assert.ok(approvals.result.structuredContent.approvals.some(item => item.tool === 'browser.open'));
   });
 });
 

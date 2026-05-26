@@ -16,7 +16,7 @@ function lower(goal) {
 }
 
 function resolveDbPath(opts = {}, kernel) {
-  if (Object.prototype.hasOwnProperty.call(opts, 'dbPath')) {
+  if (Object.prototype.hasOwnProperty.call(opts, 'dbPath') && opts.dbPath) {
     return opts.dbPath;
   }
   const graphMemoryPath = kernel?.graph?.memoryPath;
@@ -91,6 +91,24 @@ class AxiomStorage {
 
       CREATE INDEX IF NOT EXISTS idx_agent_runs_goal_key_updated
         ON agent_runs(goal_key, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS tool_approvals (
+        id TEXT PRIMARY KEY,
+        approval_key TEXT NOT NULL UNIQUE,
+        tool TEXT NOT NULL,
+        input TEXT NOT NULL DEFAULT '',
+        context_json TEXT NOT NULL DEFAULT '{}',
+        policy_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'pending',
+        decision TEXT NOT NULL DEFAULT '',
+        reason TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        decided_at INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_tool_approvals_status_updated
+        ON tool_approvals(status, updated_at DESC);
     `);
 
     this._stmts = {
@@ -168,6 +186,48 @@ class AxiomStorage {
       countRuns: this.db.prepare('SELECT COUNT(*) AS c FROM agent_runs'),
       countGoals: this.db.prepare('SELECT COUNT(*) AS c FROM goal_memory'),
       countCheckpoints: this.db.prepare('SELECT COUNT(*) AS c FROM checkpoints'),
+      upsertToolApproval: this.db.prepare(`
+        INSERT INTO tool_approvals (
+          id, approval_key, tool, input, context_json, policy_json,
+          status, decision, reason, created_at, updated_at, decided_at
+        ) VALUES (
+          @id, @approval_key, @tool, @input, @context_json, @policy_json,
+          @status, @decision, @reason, @created_at, @updated_at, @decided_at
+        )
+        ON CONFLICT(approval_key) DO UPDATE SET
+          tool = excluded.tool,
+          input = excluded.input,
+          context_json = excluded.context_json,
+          policy_json = excluded.policy_json,
+          status = excluded.status,
+          decision = excluded.decision,
+          reason = excluded.reason,
+          updated_at = excluded.updated_at,
+          decided_at = excluded.decided_at
+      `),
+      getToolApprovalByKey: this.db.prepare('SELECT * FROM tool_approvals WHERE approval_key = ? LIMIT 1'),
+      getToolApprovalById: this.db.prepare('SELECT * FROM tool_approvals WHERE id = ? LIMIT 1'),
+      listPendingToolApprovals: this.db.prepare(`
+        SELECT *
+        FROM tool_approvals
+        WHERE status = 'pending'
+        ORDER BY updated_at DESC
+        LIMIT ?
+      `),
+      countPendingToolApprovals: this.db.prepare(`
+        SELECT COUNT(*) AS c
+        FROM tool_approvals
+        WHERE status = 'pending'
+      `),
+      resolveToolApproval: this.db.prepare(`
+        UPDATE tool_approvals
+        SET status = @status,
+            decision = @decision,
+            reason = @reason,
+            decided_at = @decided_at,
+            updated_at = @updated_at
+        WHERE id = @id
+      `),
     };
   }
 
@@ -294,6 +354,79 @@ class AxiomStorage {
 
   countCheckpoints() {
     return Number(this._stmts.countCheckpoints.get()?.c || 0);
+  }
+
+  saveToolApproval(record = {}) {
+    const id = String(record.id || `approval-${this._now()}`);
+    const approvalKey = String(record.approvalKey || `${lower(record.tool)}:${lower(record.input)}:${lower(record.context?.goal || '')}:${String(record.policy?.action || '')}`);
+    const tool = String(record.tool || '');
+    const input = String(record.input || '');
+    const context = record.context && typeof record.context === 'object' ? record.context : {};
+    const policy = record.policy && typeof record.policy === 'object' ? record.policy : {};
+    const status = String(record.status || 'pending');
+    const decision = String(record.decision || '');
+    const reason = String(record.reason || '');
+    const now = this._now();
+    const payload = {
+      id,
+      approval_key: approvalKey,
+      tool,
+      input,
+      context_json: JSON.stringify(context),
+      policy_json: JSON.stringify(policy),
+      status,
+      decision,
+      reason,
+      created_at: Number(record.createdAt || now),
+      updated_at: now,
+      decided_at: Number(record.decidedAt || 0),
+    };
+    this._stmts.upsertToolApproval.run(payload);
+    return this.getToolApprovalByKey(approvalKey);
+  }
+
+  getToolApprovalByKey(approvalKey) {
+    const row = this._stmts.getToolApprovalByKey.get(String(approvalKey || ''));
+    return row ? this._hydrateToolApproval(row) : null;
+  }
+
+  getToolApprovalById(id) {
+    const row = this._stmts.getToolApprovalById.get(String(id || ''));
+    return row ? this._hydrateToolApproval(row) : null;
+  }
+
+  listPendingToolApprovals(limit = 20) {
+    const rows = this._stmts.listPendingToolApprovals.all(Math.max(1, Number(limit) || 20));
+    return rows.map(row => this._hydrateToolApproval(row));
+  }
+
+  countPendingToolApprovals() {
+    return Number(this._stmts.countPendingToolApprovals.get()?.c || 0);
+  }
+
+  resolveToolApproval(id, decision = 'approved', reason = '') {
+    if (!id) return null;
+    const existing = this.getToolApprovalById(id);
+    if (!existing) return null;
+    const status = decision === 'approved' ? 'approved' : decision === 'rejected' ? 'rejected' : 'pending';
+    const now = this._now();
+    this._stmts.resolveToolApproval.run({
+      id: String(id),
+      status,
+      decision: String(decision || ''),
+      reason: String(reason || ''),
+      decided_at: status === 'pending' ? 0 : now,
+      updated_at: now,
+    });
+    return this.getToolApprovalById(id);
+  }
+
+  _hydrateToolApproval(row) {
+    return {
+      ...row,
+      context: safeParse(row.context_json, {}),
+      policy: safeParse(row.policy_json, {}),
+    };
   }
 
   close() {

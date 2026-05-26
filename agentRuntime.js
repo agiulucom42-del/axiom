@@ -10,10 +10,11 @@ function createAgent(opts = {}) {
   const version = resolveAgentVersion(opts);
   const storage = opts.storage || (() => {
     try {
-      return new AxiomStorage({
-        kernel: opts.kernel,
-        dbPath: opts.dbPath,
-      });
+      const storageOpts = { kernel: opts.kernel };
+      if (Object.prototype.hasOwnProperty.call(opts, 'dbPath') && opts.dbPath) {
+        storageOpts.dbPath = opts.dbPath;
+      }
+      return new AxiomStorage(storageOpts);
     } catch (_) {
       return null;
     }
