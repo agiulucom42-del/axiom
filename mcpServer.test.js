@@ -210,8 +210,11 @@ describe('MCP Server', () => {
     assert.strictEqual(policy.result.structuredContent.type, 'policy');
     assert.strictEqual(policy.result.structuredContent.data.category, 'external');
     assert.strictEqual(policy.result.structuredContent.data.action, 'review');
+    assert.strictEqual(policy.result.structuredContent.data.approval, 'review');
     assert.strictEqual(policy.result.structuredContent.data.blocked, false);
     assert.strictEqual(policy.result.structuredContent.data.requiresApproval, true);
+    assert.ok(Number.isInteger(policy.result.structuredContent.data.riskScore));
+    assert.ok(policy.result.structuredContent.data.riskScore > 0);
     assert.ok(Array.isArray(policy.result.structuredContent.data.labels));
     assert.ok(policy.result.structuredContent.data.reasons.length >= 1);
   });

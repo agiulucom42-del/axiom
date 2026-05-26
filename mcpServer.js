@@ -325,9 +325,11 @@ const TOOL_POLICY_SCHEMA = {
     input: { type: 'string' },
     category: { type: 'string', enum: ['internal', 'external'] },
     action: { type: 'string', enum: ['allow', 'review', 'block'] },
+    approval: { type: 'string', enum: ['auto', 'review', 'blocked'] },
     blocked: { type: 'boolean' },
     requiresApproval: { type: 'boolean' },
     review: { type: 'boolean' },
+    riskScore: { type: 'integer', minimum: 0, maximum: 100 },
     confidence: { type: 'number', minimum: 0, maximum: 1 },
     labels: { type: 'array', items: { type: 'string' } },
     reasons: { type: 'array', items: { type: 'string' } },
@@ -335,7 +337,7 @@ const TOOL_POLICY_SCHEMA = {
     source: { type: 'string' },
     context: { type: 'object' },
   },
-  required: ['tool', 'category', 'action', 'blocked', 'requiresApproval', 'labels', 'reasons'],
+  required: ['tool', 'category', 'action', 'approval', 'blocked', 'requiresApproval', 'labels', 'reasons'],
   additionalProperties: true,
 };
 

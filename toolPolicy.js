@@ -25,6 +25,22 @@ function matchesAny(text, patterns = []) {
   return patterns.some(pattern => pattern.test(value));
 }
 
+function clampRiskScore(value) {
+  return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+}
+
+function scoreRisk({ blocked, review, input = '', tool = '' } = {}) {
+  let score = 0;
+  if (blocked) score += 70;
+  if (review) score += 35;
+  if (matchesAny(input, INJECTION_PATTERNS)) score += 20;
+  if (matchesAny(tool, EXTERNAL_BLOCK_PATTERNS)) score += 15;
+  if (matchesAny(input, EXTERNAL_BLOCK_PATTERNS)) score += 15;
+  if (matchesAny(tool, EXTERNAL_REVIEW_PATTERNS)) score += 8;
+  if (matchesAny(input, EXTERNAL_REVIEW_PATTERNS)) score += 8;
+  return clampRiskScore(score);
+}
+
 function buildReasons({ category, tool, input, context, blocked, review }) {
   const reasons = [];
   if (category === 'internal') {
@@ -56,9 +72,11 @@ function evaluateToolPolicy({ tool, input = '', context = {}, internalTools = IN
       tool: normalizedTool,
       category: 'internal',
       action: 'allow',
+      approval: 'auto',
       blocked: false,
       requiresApproval: false,
       review: false,
+      riskScore: 0,
       confidence: 1,
       labels: ['internal-tool'],
       reasons: ['Internal AXIOM tool.'],
@@ -75,14 +93,18 @@ function evaluateToolPolicy({ tool, input = '', context = {}, internalTools = IN
   if (review) labels.push('requires-approval');
   if (matchesAny(normalizedInput, INJECTION_PATTERNS)) labels.push('prompt-injection-risk');
   if (matchesAny(normalizedTool, EXTERNAL_BLOCK_PATTERNS)) labels.push('destructive');
+  const approval = blocked ? 'blocked' : 'review';
+  const riskScore = scoreRisk({ blocked, review, input: normalizedInput, tool: normalizedTool });
 
   return {
     tool: normalizedTool,
     category: 'external',
     action,
+    approval,
     blocked,
     requiresApproval: !blocked,
     review: action === 'review',
+    riskScore,
     confidence: blocked ? 0.96 : 0.78,
     labels,
     reasons: buildReasons({ category: 'external', tool: normalizedTool, input: normalizedInput, context, blocked, review }),
