@@ -262,7 +262,7 @@ For the current v2 shipping status and next-phase priorities, see [RELEASE_V2.md
 - v2.8 Status Dashboard Polish: done
 - v2.9 Evidence Polish: done
 - v3.0 Agent Workflow: in progress, with opt-in checkpointed runtime via `AXIOM_AGENT_VERSION=v3`
-- Test status: `213/213`
+- Test status: `215/215`
 
 ## Current Remaining Work
 

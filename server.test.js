@@ -325,7 +325,7 @@ describe('Server - API', () => {
     assert.strictEqual(j.checkpointBackend, 'json');
     assert.strictEqual(typeof j.agentCheckpointPath, 'string');
     assert.strictEqual(j.activeKernel, 'v2');
-  assert.strictEqual(j.testStatus, '213/213');
+  assert.match(j.testStatus, /^\d+\/\d+$/);
     assert.ok(['sqlite', 'json'].includes(j.backend));
     assert.ok(Number.isInteger(j.nodes));
     assert.ok(Number.isInteger(j.edges));

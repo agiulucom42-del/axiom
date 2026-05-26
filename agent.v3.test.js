@@ -76,4 +76,36 @@ describe('AgentV3', () => {
     assert.ok(plan.data.memory.storage.goalMemory.successCount >= 1);
     assert.ok(plan.data.policy.signals.includes('goal-memory'));
   });
+
+  it('getStatus returns default zeros when no runs exist', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'axiom-status-zeros-'));
+    const dbPath = path.join(tmpDir, 'memory.db');
+    const agent = freshAgent(dbPath);
+    const status = agent.getStatus();
+    assert.ok(status);
+    assert.strictEqual(status.goals, 0);
+    assert.strictEqual(status.checkpoints, 0);
+    assert.strictEqual(status.runs, 0);
+    assert.strictEqual(status.lastPlan, null);
+    assert.strictEqual(status.lastRun, null);
+  });
+
+  it('getStatus returns populated values after a run', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'axiom-status-pop-'));
+    const dbPath = path.join(tmpDir, 'memory.db');
+    const agent = freshAgent(dbPath);
+    const result = agent.run('kedi hayvandir mi?', {
+      resume: false,
+      maxIterations: 1,
+      timeBudgetMs: 5000,
+    });
+    assert.strictEqual(result.ok, true);
+
+    const status = agent.getStatus();
+    assert.strictEqual(status.goals, 1);
+    assert.ok(status.checkpoints >= 0);
+    assert.strictEqual(status.runs, 1);
+    assert.ok(status.lastRun);
+    assert.strictEqual(status.lastRun.status, 'paused');
+  });
 });

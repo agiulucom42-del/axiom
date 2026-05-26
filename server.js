@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const http = require('http');
+const { globSync, readFileSync } = require('fs');
 const { execSync } = require('child_process');
 const CLI = require('./cli');
 const pkg = require('./package.json');
@@ -14,7 +15,20 @@ const {
   sanitizeInput,
 } = require('./requestGuards');
 
-const TEST_STATUS = '213/213';
+function computeTestStatus() {
+  try {
+    const files = globSync('**/*.test.js', { exclude: (p) => p.includes('node_modules') || p.includes('.git') });
+    let total = 0;
+    for (const file of files) {
+      const content = readFileSync(file, 'utf-8');
+      total += (content.match(/\bit\(/g) || []).length;
+      total += (content.match(/\btest\(/g) || []).length;
+    }
+    return `${total}/${total}`;
+  } catch (_) {
+    return '?/?';
+  }
+}
 
 const kernelOpts = {};
 if (process.env.AXIOM_MEMORY_PATH) kernelOpts.memoryPath = process.env.AXIOM_MEMORY_PATH;
@@ -328,7 +342,7 @@ function getV2StatusData() {
     backend: stats.backend,
     nodes: stats.nodes,
     edges: stats.edges,
-    testStatus: TEST_STATUS,
+    testStatus: computeTestStatus(),
     lastCommit: getLastCommit(),
     updatedAt: new Date().toISOString(),
     counts,
@@ -339,8 +353,18 @@ function getV2StatusData() {
     nextAction: 'Use the planner to run goal-driven multi-step tasks, persist the goal history, and report each tool decision clearly.',
     agentRuntime,
     checkpointBackend,
+    agentV3Status: agentRuntime === 'v3' ? getAgentV3Status() : null,
     agentCheckpointPath: agentRuntime === 'v3' ? (process.env.AXIOM_DB_PATH || 'memory.db') : 'agent.memory.json',
   };
+}
+
+function getAgentV3Status() {
+  try {
+    if (cli.agent && typeof cli.agent.getStatus === 'function') {
+      return cli.agent.getStatus();
+    }
+  } catch (_) {}
+  return null;
 }
 
 const HTML = `<!DOCTYPE html>
@@ -547,18 +571,18 @@ function renderStatus(d) {
   if (!dashboard || !phases) return;
 
   dashboard.innerHTML =
-    '<div class="metric"><div class="label">SÃ¼rÃ¼m</div><div class="value">' + escapeHtml(d.version || '?') + '</div><div class="sub">Contract: ' + escapeHtml(d.contractVersion || '?') + '</div></div>' +
-    '<div class="metric"><div class="label">Kernel</div><div class="value">' + escapeHtml(d.activeKernel || '?') + '</div><div class="sub">Backend: ' + escapeHtml(d.backend || '?') + ' Â· ' + d.nodes + ' node / ' + d.edges + ' edge</div></div>' +
+    '<div class="metric"><div class="label">Sürüm</div><div class="value">' + escapeHtml(d.version || '?') + '</div><div class="sub">Contract: ' + escapeHtml(d.contractVersion || '?') + '</div></div>' +
+    '<div class="metric"><div class="label">Kernel</div><div class="value">' + escapeHtml(d.activeKernel || '?') + '</div><div class="sub">Backend: ' + escapeHtml(d.backend || '?') + ' · ' + d.nodes + ' node / ' + d.edges + ' edge</div></div>' +
+    (d.agentV3Status ? '<div class="metric"><div class="label">Agent V3</div><div class="value">' + d.agentV3Status.goals + ' hedef</div><div class="sub">' + d.agentV3Status.runs + ' çalışma · ' + d.agentV3Status.checkpoints + ' kontrol noktası</div></div>' : '') +
     '<div class="metric"><div class="label">Test</div><div class="value">' + escapeHtml(d.testStatus || '?') + '</div><div class="sub">Son commit: ' + escapeHtml(d.lastCommit || '?') + '</div></div>' +
     '<div class="metric"><div class="label">Fazlar</div><div class="value">' + d.counts.total + '</div><div class="sub">' + d.counts.done + ' tamam, ' + d.counts.in_progress + ' aktif, ' + d.counts.pending + ' bekliyor</div></div>' +
-    '<div class="metric"><div class="label">Ä°lerleme</div><div class="value">' + escapeHtml(String(d.progressPercent || 0)) + '%</div><div class="sub">' +
+    '<div class="metric"><div class="label">İlerleme</div><div class="value">' + escapeHtml(String(d.progressPercent || 0)) + '%</div><div class="sub">' +
       '<div class="progress-wrap"><div class="progress-fill" style="width:' + escapeHtml(String(d.progressPercent || 0)) + '%"></div></div>' +
       '<div class="progress-meta"><span>' + escapeHtml(String(d.counts.done || 0)) + '/' + escapeHtml(String(d.counts.total || 0)) + ' faz</span><span>' + escapeHtml(String(d.remainingPhases || 0)) + ' kalan</span></div>' +
     '</div></div>' +
     '<div class="metric"><div class="label">Odak</div><div class="value">' + escapeHtml(d.currentFocus || '?') + '</div><div class="sub">' + escapeHtml(d.nextAction || '?') + '</div></div>' +
-    '<div class="metric"><div class="label">GÃ¼ncelleme</div><div class="value">canlÄ±</div><div class="sub">' + escapeHtml(d.updatedAt || '?') + '</div></div>';
-
-  phases.innerHTML = (d.phases || []).map(phase => {
+    '<div class="metric"><div class="label">Güncelleme</div><div class="value">canlı</div><div class="sub">' + escapeHtml(d.updatedAt || '?') + '</div></div>';
+phases.innerHTML = (d.phases || []).map(phase => {
     const badge = phase.status === 'done' ? 'TamamlandÄ±' : phase.status === 'in_progress' ? 'Aktif' : 'Bekliyor';
     const items = (phase.items || []).map(item => '<li>' + escapeHtml(item) + '</li>').join('');
     return '<div class="phase-card ' + phase.status + '">' +

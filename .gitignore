@@ -8,3 +8,6 @@ memory.db-wal
 test_memory.db
 *.log
 .env
+demo-sonuc.json
+tbk-demo.js
+tbk-kira.js

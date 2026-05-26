@@ -166,6 +166,8 @@ class AxiomStorage {
           updated_at = excluded.updated_at
       `),
       countRuns: this.db.prepare('SELECT COUNT(*) AS c FROM agent_runs'),
+      countGoals: this.db.prepare('SELECT COUNT(*) AS c FROM goal_memory'),
+      countCheckpoints: this.db.prepare('SELECT COUNT(*) AS c FROM checkpoints'),
     };
   }
 
@@ -284,6 +286,14 @@ class AxiomStorage {
 
   countRuns() {
     return Number(this._stmts.countRuns.get()?.c || 0);
+  }
+
+  countGoals() {
+    return Number(this._stmts.countGoals.get()?.c || 0);
+  }
+
+  countCheckpoints() {
+    return Number(this._stmts.countCheckpoints.get()?.c || 0);
   }
 
   close() {

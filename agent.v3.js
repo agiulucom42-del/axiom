@@ -370,6 +370,31 @@ class AgentV3 {
       paused: state.status === 'paused',
     });
   }
+
+  getStatus() {
+    const goals = this.storage ? this.storage.countGoals() : 0;
+    const checkpoints = this.storage ? this.storage.countCheckpoints() : 0;
+    const runs = this.storage ? this.storage.countRuns() : 0;
+    return {
+      agent: 'v3',
+      goals,
+      checkpoints,
+      runs,
+      lastPlan: this.lastPlan
+        ? { goal: this.lastPlan.goal, steps: this.lastPlan.steps.length }
+        : null,
+      lastRun: this.lastRun
+        ? {
+            status: this.lastRun.status,
+            goal: this.lastRun.goal,
+            completedSteps: this.lastRun.completedSteps,
+            resumeToken: this.lastRun.resumeToken || null,
+            remainingSteps: this.lastRun.remainingSteps,
+            finalAnswer: this.lastRun.finalAnswer
+          }
+        : null
+    };
+  }
 }
 
 module.exports = AgentV3;
