@@ -184,6 +184,41 @@ class Dream {
     return path;
   }
 
+  // ─── Composite Skorlama ──────────────────────────────────────────────────
+
+  _calculateCompositeScore(hyp) {
+    const confidence = hyp.confidence || 0.3;
+
+    let novelty = 0;
+    if (hyp.type === 'çelişki') {
+      novelty = 1.0;
+    } else if (hyp.from && hyp.to) {
+      const exists = this.graph.getEdges(hyp.from).some(e => e.to === hyp.to)
+                  || this.graph.getEdges(hyp.to).some(e => e.to === hyp.from);
+      novelty = exists ? 0 : 1;
+    }
+
+    let usefulness = 0;
+    const nodeId = hyp.from || hyp.node;
+    if (nodeId) {
+      const outDeg = this.graph.getEdges(nodeId).length;
+      const inDeg = this.graph.getInEdges(nodeId).length;
+      const deg = outDeg + inDeg;
+      const nodes = Object.values(this.graph._nodes);
+      const avgDeg = nodes.reduce((s, n) => {
+        return s + this.graph.getEdges(n.id).length + this.graph.getInEdges(n.id).length;
+      }, 0) / Math.max(1, nodes.length);
+      usefulness = avgDeg > 0 ? Math.min(1, deg / avgDeg) : 0;
+    }
+
+    return {
+      score: confidence * 0.5 + novelty * 0.3 + usefulness * 0.2,
+      confidence,
+      novelty,
+      usefulness,
+    };
+  }
+
   // ─── Dream (Hipotez Üretimi) ──────────────────────────────────────────────
 
   dream() {
@@ -201,14 +236,28 @@ class Dream {
     this._findSymmetryHypotheses(nodes, hypotheses);
     this._findContradictionHypotheses(nodes, hypotheses);
 
-    this._emit('afterDream', { hypotheses });
-    return hypotheses;
+    const scored = hypotheses.map(h => ({
+      ...h,
+      ...this._calculateCompositeScore(h),
+    }));
+
+    const contradictions = scored.filter(h => h.type === 'çelişki');
+    const others = scored.filter(h => h.type !== 'çelişki');
+
+    contradictions.sort((a, b) => b.confidence - a.confidence);
+    others.sort((a, b) => b.score - a.score);
+
+    const result = [...contradictions, ...others].slice(0, 10);
+
+    this._emit('afterDream', { hypotheses: result });
+    return result;
   }
 
   _findSimilarityHypotheses(nodes, hypotheses) {
     const checked = new Set();
-    for (let i = 0; i < nodes.length && hypotheses.length < 15; i++) {
-      for (let j = i + 1; j < nodes.length && hypotheses.length < 15; j++) {
+    let added = 0;
+    for (let i = 0; i < nodes.length && added < 50; i++) {
+      for (let j = i + 1; j < nodes.length && added < 50; j++) {
         const a = nodes[i], b = nodes[j];
         const key = `${a.id}|${b.id}`;
         if (checked.has(key)) continue;
@@ -237,6 +286,7 @@ class Dream {
               confidence: Math.min(0.7, 0.2 + avgWeight * 0.4 * common.length),
               ortak_sayısı: common.length,
             });
+            added++;
           }
         }
 
@@ -252,6 +302,7 @@ class Dream {
               confidence: Math.min(0.5, sim * 0.6),
               benzerlik: sim,
             });
+            added++;
           }
         }
       }
@@ -259,14 +310,15 @@ class Dream {
   }
 
   _findTransitiveHypotheses(nodes, hypotheses) {
+    let added = 0;
     for (const node of nodes) {
-      if (hypotheses.length >= 15) break;
+      if (added >= 50) break;
       const edges = this.graph.getEdges(node.id);
       for (const edge of edges) {
-        if (hypotheses.length >= 15) break;
+        if (added >= 50) break;
         const transEdges = this.graph.getEdges(edge.to);
         for (const te of transEdges) {
-          if (hypotheses.length >= 15) break;
+          if (added >= 50) break;
           if (te.to === node.id) continue;
           const existing = this.graph.getEdge(node.id, te.to, edge.relation);
           if (!existing) {
@@ -275,9 +327,10 @@ class Dream {
               from: node.id,
               to: te.to,
               via: edge.to,
-              confidence: Math.min(0.5, edge.weight * te.weight * 0.8),
+              confidence: Math.min(0.6, edge.weight * te.weight * 3.0),
               relation: edge.relation,
             });
+            added++;
           }
         }
       }
@@ -288,8 +341,9 @@ class Dream {
     const gaps = this.kernel.detectGaps();
     if (gaps.length === 0 || nodes.length < 2) return;
 
+    let added = 0;
     for (const gapId of gaps) {
-      if (hypotheses.length >= 15) break;
+      if (added >= 50) break;
       const gapNode = this.graph.getNode(gapId);
       if (!gapNode) continue;
 
@@ -308,16 +362,18 @@ class Dream {
           confidence: Math.min(0.4, bestSim * 0.5),
           benzerlik: bestSim,
         });
+        added++;
       }
     }
   }
 
   _findSymmetryHypotheses(nodes, hypotheses) {
+    let added = 0;
     for (const node of nodes) {
-      if (hypotheses.length >= 15) break;
+      if (added >= 50) break;
       const edges = this.graph.getEdges(node.id);
       for (const edge of edges) {
-        if (hypotheses.length >= 15) break;
+        if (added >= 50) break;
         const reverse    = this.graph.getEdge(edge.to, node.id, edge.relation);
         const reverseAny = this.graph.getEdge(edge.to, node.id);
         if (!reverse && !reverseAny) {
@@ -329,6 +385,7 @@ class Dream {
             confidence: edge.weight * 0.3,
             relation: edge.relation,
           });
+          added++;
         }
       }
     }
@@ -338,14 +395,16 @@ class Dream {
     if (typeof this.kernel.detectContradictions !== 'function') return;
     try {
       const contradictions = this.kernel.detectContradictions();
+      let added = 0;
       for (const c of contradictions) {
-        if (hypotheses.length >= 15) break;
+        if (added >= 50) break;
         hypotheses.push({
           type: 'çelişki',
           node: c.node,
           targets: c.targets,
           confidence: c.confidence || 0.4,
         });
+        added++;
       }
     } catch (_) {}
   }
