@@ -244,9 +244,9 @@ Fixture sizes live under `benchmarks/fixtures/` and are intentionally stable so 
 
 ## Release Notes
 
-For the current shipped status and release context, see [RELEASE_V2.md](./RELEASE_V2.md), [RELEASE_NOTES_v2.0.0.md](./RELEASE_NOTES_v2.0.0.md), and [PUBLIC_RELEASE_POST.md](./PUBLIC_RELEASE_POST.md).
+For the current shipped status and release context, see [RELEASE_V2.md](./RELEASE_V2.md), [RELEASE_NOTES_v2.0.0.md](./RELEASE_NOTES_v2.0.0.md), [PUBLIC_RELEASE_POST.md](./PUBLIC_RELEASE_POST.md), and the active [ROADMAP.md](./ROADMAP.md).
 
-## V2 Status (Single View)
+## Status Snapshot
 
 - Phase 1 Core Contract: done
 - Phase 2 MCP Polish: done
@@ -264,15 +264,9 @@ For the current shipped status and release context, see [RELEASE_V2.md](./RELEAS
 - v3.0 Agent Workflow: in progress, with opt-in checkpointed runtime via `AXIOM_AGENT_VERSION=v3`
 - Test status: `215/215`
 
-## Current Remaining Work
+## Active Roadmap
 
-Current remaining work is tracked in the active implementation backlog and, in short, focuses on:
-
-- finish the stronger v3 agent loop with checkpoint/resume
-- opt into `AXIOM_AGENT_VERSION=v3` when you want the checkpointed runtime
-- harden security and request handling
-- add basic operational packaging such as Docker and CI
-- keep language packs lightweight and only expand where they create clear user value
+The active product roadmap is tracked in [ROADMAP.md](./ROADMAP.md).
 
 ## Docker
 
